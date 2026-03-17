@@ -72,12 +72,12 @@ export default async function Layout({ params, children }: DocsSlugLayoutProps) 
             url: docsPath('/docs/api-reference'),
             icon: <CodeIcon className="size-4" />,
           },
-          ...(process.env.FORK_OWNER_GUIDE === 'true'
+          ...(process.env.ENABLE_LAUNCH_GUIDE === 'true'
             ? [
                 {
-                  title: 'Owner Guide',
+                  title: 'Launch Guide',
                   description: 'For Entrepeneurs',
-                  url: docsPath('/docs/owners'),
+                  url: docsPath('/docs/launch'),
                   icon: <GitForkIcon className="size-4" />,
                 },
               ]
