@@ -1,11 +1,10 @@
 'use client'
 
-import { useAppKitAccount } from '@reown/appkit/react'
+import type { Event } from '@/types'
 import { useQueryClient } from '@tanstack/react-query'
 import { BookmarkIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { getBookmarkStatusAction } from '@/app/[locale]/(platform)/event/[slug]/_actions/get-bookmark-status'
-import { toggleBookmarkAction } from '@/app/[locale]/(platform)/event/[slug]/_actions/toggle-bookmark'
+import { getBookmarkStatusAction, toggleBookmarkAction } from '@/app/[locale]/(platform)/_actions/bookmark'
 import { Button } from '@/components/ui/button'
 import { useAppKit } from '@/hooks/useAppKit'
 import { cn } from '@/lib/utils'
@@ -14,21 +13,106 @@ import { useUser } from '@/stores/useUser'
 const headerIconButtonClass = 'size-10 rounded-sm border border-transparent bg-transparent text-foreground transition-colors hover:bg-muted/80 focus-visible:ring-1 focus-visible:ring-ring md:size-9'
 
 interface EventBookmarkProps {
-  event: {
-    id: string
-    is_bookmarked: boolean
+  event: Event
+  refreshStatusOnMount?: boolean
+}
+
+interface InfiniteEventsQueryData {
+  pageParams: unknown[]
+  pages: Event[][]
+}
+
+function isInfiniteEventsQueryData(value: unknown): value is InfiniteEventsQueryData {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<InfiniteEventsQueryData>
+  return Array.isArray(candidate.pages) && Array.isArray(candidate.pageParams)
+}
+
+function isBookmarkedEventsQuery(queryKey: readonly unknown[]) {
+  if (queryKey[0] !== 'events') {
+    return false
+  }
+
+  if (typeof queryKey[2] === 'boolean') {
+    return queryKey[2]
+  }
+
+  if (typeof queryKey[4] === 'boolean') {
+    return queryKey[4]
+  }
+
+  return false
+}
+
+function getEventsQueryScope(queryKey: readonly unknown[]) {
+  if (queryKey[0] !== 'events') {
+    return null
+  }
+
+  if (typeof queryKey[4] === 'boolean') {
+    return typeof queryKey[11] === 'string' ? queryKey[11] : null
+  }
+
+  if (typeof queryKey[2] === 'boolean') {
+    return typeof queryKey[9] === 'string' ? queryKey[9] : null
+  }
+
+  return null
+}
+
+function updateEventsQueryData(
+  currentData: unknown,
+  event: Event,
+  nextBookmarkedState: boolean,
+  bookmarkedOnly: boolean,
+) {
+  if (!isInfiniteEventsQueryData(currentData)) {
+    return currentData
+  }
+
+  let hasChanges = false
+  const nextPages = currentData.pages.map((page) => {
+    const nextPage = page.flatMap((entry) => {
+      if (entry.id !== event.id) {
+        return [entry]
+      }
+
+      hasChanges = true
+
+      if (bookmarkedOnly && !nextBookmarkedState) {
+        return []
+      }
+
+      return [{ ...entry, is_bookmarked: nextBookmarkedState }]
+    })
+
+    return nextPage
+  })
+
+  if (!hasChanges) {
+    return currentData
+  }
+
+  return {
+    ...currentData,
+    pages: nextPages,
   }
 }
 
-export default function EventBookmark({ event }: EventBookmarkProps) {
+export default function EventBookmark({
+  event,
+  refreshStatusOnMount = true,
+}: EventBookmarkProps) {
   const { open } = useAppKit()
-  const { isConnected } = useAppKitAccount()
   const user = useUser()
   const queryClient = useQueryClient()
   const [isBookmarked, setIsBookmarked] = useState(event.is_bookmarked)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const handleBookmark = useCallback(() => {
+  const handleBookmark = useCallback(async () => {
     if (isSubmitting) {
       return
     }
@@ -37,32 +121,68 @@ export default function EventBookmark({ event }: EventBookmarkProps) {
     setIsBookmarked(!isBookmarked)
     setIsSubmitting(true)
 
-    void (async () => {
-      try {
-        const response = await toggleBookmarkAction(event.id)
-        if (response.error) {
-          setIsBookmarked(previousState)
-          return
-        }
-
-        // Keep global event lists stale without forcing immediate refetch in-page.
-        void queryClient.invalidateQueries({ queryKey: ['events'], refetchType: 'none' })
-      }
-      catch {
+    try {
+      const response = await toggleBookmarkAction(event.id)
+      if (response.error) {
         setIsBookmarked(previousState)
+        if (response.error === 'Unauthenticated.') {
+          queueMicrotask(() => open())
+        }
+        return
       }
-      finally {
-        setIsSubmitting(false)
+
+      const persistedBookmarkState = response.data?.isBookmarked
+      const actingUserId = response.data?.userId ?? user?.id ?? null
+      if (typeof persistedBookmarkState !== 'boolean' || !actingUserId) {
+        setIsBookmarked(previousState)
+        return
       }
-    })
-  }, [event.id, isBookmarked, isSubmitting, queryClient])
+
+      setIsBookmarked(persistedBookmarkState)
+
+      const matchingEventQueries = queryClient.getQueriesData({
+        predicate: query => (
+          query.queryKey[0] === 'events'
+          && getEventsQueryScope(query.queryKey) === actingUserId
+        ),
+      })
+
+      matchingEventQueries.forEach(([queryKey, currentData]) => {
+        queryClient.setQueryData(
+          queryKey,
+          updateEventsQueryData(
+            currentData,
+            event,
+            persistedBookmarkState,
+            isBookmarkedEventsQuery(queryKey),
+          ),
+        )
+      })
+
+      if (persistedBookmarkState) {
+        queryClient.removeQueries({
+          type: 'inactive',
+          predicate: query => (
+            isBookmarkedEventsQuery(query.queryKey)
+            && getEventsQueryScope(query.queryKey) === actingUserId
+          ),
+        })
+      }
+    }
+    catch {
+      setIsBookmarked(previousState)
+    }
+    finally {
+      setIsSubmitting(false)
+    }
+  }, [event, isBookmarked, isSubmitting, open, queryClient, user?.id])
 
   useEffect(() => {
     setIsBookmarked(event.is_bookmarked)
   }, [event.is_bookmarked])
 
   useEffect(() => {
-    if (!user?.id) {
+    if (!refreshStatusOnMount || !user?.id) {
       return
     }
 
@@ -79,22 +199,22 @@ export default function EventBookmark({ event }: EventBookmarkProps) {
     return () => {
       isActive = false
     }
-  }, [event.id, user?.id])
+  }, [event.id, refreshStatusOnMount, user?.id])
 
   return (
     <Button
       type="button"
       size="icon"
       variant="ghost"
-      onClick={() => {
-        if (isConnected) {
-          handleBookmark()
-        }
-        else {
-          queueMicrotask(() => open())
-        }
+      onMouseDown={(mouseEvent) => {
+        mouseEvent.preventDefault()
       }}
-      disabled={isSubmitting}
+      onClick={(clickEvent) => {
+        clickEvent.preventDefault()
+        clickEvent.stopPropagation()
+        void handleBookmark()
+      }}
+      aria-disabled={isSubmitting}
       aria-pressed={isBookmarked}
       title={isBookmarked ? 'Remove Bookmark' : 'Bookmark'}
       className={cn(

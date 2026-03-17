@@ -1,7 +1,5 @@
 import type { QueryResult } from '@/types'
 import { and, eq } from 'drizzle-orm'
-import { updateTag } from 'next/cache'
-import { cacheTags } from '@/lib/cache-tags'
 import { bookmarks } from '@/lib/db/schema/bookmarks/tables'
 import { runQuery } from '@/lib/db/utils/run-query'
 import { db } from '@/lib/drizzle'
@@ -24,7 +22,7 @@ export const BookmarkRepository = {
     })
   },
 
-  async toggleBookmark(user_id: string, event_id: string): Promise<QueryResult<null>> {
+  async toggleBookmark(user_id: string, event_id: string): Promise<QueryResult<boolean>> {
     return runQuery(async () => {
       const existing = await db
         .select({ eventId: bookmarks.event_id })
@@ -46,17 +44,15 @@ export const BookmarkRepository = {
               eq(bookmarks.event_id, event_id),
             ),
           )
-      }
-      else {
-        await db
-          .insert(bookmarks)
-          .values({ user_id, event_id })
+
+        return { data: false, error: null }
       }
 
-      updateTag(cacheTags.events(user_id))
-      updateTag(cacheTags.event(`${event_id}:${user_id}`))
+      await db
+        .insert(bookmarks)
+        .values({ user_id, event_id })
 
-      return { data: null, error: null }
+      return { data: true, error: null }
     })
   },
 }
