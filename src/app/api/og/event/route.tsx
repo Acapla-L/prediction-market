@@ -1,5 +1,6 @@
 import type { SupportedLocale } from '@/i18n/locales'
 import type { Event } from '@/types'
+import { Buffer } from 'node:buffer'
 import { ImageResponse } from 'next/og'
 import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from '@/i18n/locales'
 import { oklchToRenderableColor } from '@/lib/color'
@@ -7,6 +8,7 @@ import { OUTCOME_INDEX } from '@/lib/constants'
 import { EventRepository } from '@/lib/db/queries/event'
 import { formatCentsLabel, formatCompactCurrency, formatPercent } from '@/lib/formatters'
 import { resolveOutcomeButtonTheme } from '@/lib/outcome-theme'
+import { readResponseBodyWithLimit } from '@/lib/read-response-body-with-limit'
 import siteUrlUtils from '@/lib/site-url'
 import { loadRuntimeThemeState } from '@/lib/theme-settings'
 
@@ -17,6 +19,17 @@ const IMAGE_HEIGHT = 630
 const CHART_WIDTH = 598
 const CHART_HEIGHT = 120
 const MAX_CHART_POINTS = 28
+// Keep the OG inline image budget aligned with the current public asset size limit.
+const MAX_OG_REMOTE_IMAGE_BYTES = 2 * 1024 * 1024
+const SOCIAL_FETCH_TIMEOUT_MS = 2500
+const IMAGE_DATA_URI_CONTENT_TYPES = new Set([
+  'image/gif',
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/svg+xml',
+  'image/webp',
+])
 const THEME_PRESET_PRIMARY_COLOR = {
   amber: 'oklch(0.881 0.168 94.237)',
   default: 'oklch(0.55 0.2 255)',
@@ -100,19 +113,44 @@ function sanitizeImageUrl(rawUrl: string | null | undefined, siteUrl: string) {
   }
 }
 
-function optimizeOgImageUrl(url: string) {
+async function fetchImageDataUrl(url: string) {
   try {
-    const parsed = new URL(url)
-    if (!parsed.hostname.endsWith('.supabase.co')) {
-      return url
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+      },
+      next: {
+        revalidate: 300,
+      },
+      signal: AbortSignal.timeout(SOCIAL_FETCH_TIMEOUT_MS),
+    })
+
+    if (!response.ok) {
+      return ''
     }
 
-    const wsrvUrl = new URL('https://wsrv.nl/')
-    wsrvUrl.searchParams.set('url', parsed.toString())
-    wsrvUrl.searchParams.set('w', '494')
-    wsrvUrl.searchParams.set('q', '80')
-    wsrvUrl.searchParams.set('output', 'webp')
-    return wsrvUrl.toString()
+    const contentType = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ?? ''
+    if (!IMAGE_DATA_URI_CONTENT_TYPES.has(contentType)) {
+      return ''
+    }
+
+    const imageBytes = await readResponseBodyWithLimit(response, MAX_OG_REMOTE_IMAGE_BYTES)
+    if (!imageBytes || imageBytes.byteLength === 0) {
+      return ''
+    }
+
+    const base64 = Buffer.from(imageBytes).toString('base64')
+    return `data:${contentType};base64,${base64}`
+  }
+  catch {
+    return ''
+  }
+}
+
+function buildAbsoluteImageUrl(url: string) {
+  try {
+    const parsed = new URL(url)
+    return parsed.toString()
   }
   catch {
     return url
@@ -139,21 +177,28 @@ function resolveFocusedMarket(event: Event, marketSlug: string) {
     })[0] ?? null
 }
 
-function resolveEventImage(event: Event, focusedMarket: EventMarket | null, siteUrl: string) {
+async function resolveEventImage(event: Event, focusedMarket: EventMarket | null, siteUrl: string) {
   const imageCandidates = [
     focusedMarket?.icon_url,
     event.icon_url,
     event.sports_team_logo_urls?.[0],
   ]
 
+  let fallbackUrl = ''
+
   for (const candidate of imageCandidates) {
     const sanitized = sanitizeImageUrl(candidate, siteUrl)
     if (sanitized) {
-      return optimizeOgImageUrl(sanitized)
+      fallbackUrl ||= buildAbsoluteImageUrl(sanitized)
+
+      const dataUrl = await fetchImageDataUrl(sanitized)
+      if (dataUrl) {
+        return dataUrl
+      }
     }
   }
 
-  return ''
+  return fallbackUrl
 }
 
 function resolveBinaryOutcome(market: EventMarket, outcomeIndex: number, fallbackIndex: number) {
@@ -229,10 +274,26 @@ function resolveOutcomeButtons(event: Event, focusedMarket: EventMarket | null, 
   return resolveMarketButtons(event)
 }
 
-function resolveLeadButton(buttons: OutcomeButton[]) {
-  return [...buttons]
-    .filter(button => button.price !== null)
-    .sort((left, right) => (right.price ?? 0) - (left.price ?? 0))[0] ?? buttons[0] ?? null
+function resolveHeadlineMetric(event: Event, focusedMarket: EventMarket | null, explicitMarketRequested: boolean) {
+  if (!focusedMarket) {
+    return {
+      label: '',
+      price: null,
+    }
+  }
+
+  if (event.total_markets_count <= 1 || explicitMarketRequested) {
+    const yesOutcome = resolveBinaryOutcome(focusedMarket, OUTCOME_INDEX.YES, 0)
+    return {
+      label: yesOutcome?.outcome_text?.trim() || 'Yes',
+      price: resolveOutcomePrice(focusedMarket, yesOutcome),
+    }
+  }
+
+  return {
+    label: focusedMarket.title?.trim() || '',
+    price: focusedMarket.price,
+  }
 }
 
 function resolveChartTokenId(market: EventMarket | null) {
@@ -319,6 +380,7 @@ async function fetchMarketPriceHistory(tokenId: string, createdAt: string, resol
       next: {
         revalidate: 300,
       },
+      signal: AbortSignal.timeout(SOCIAL_FETCH_TIMEOUT_MS),
     })
 
     if (!response.ok) {
@@ -538,17 +600,18 @@ export async function GET(request: Request) {
   )
   const explicitMarketRequested = Boolean(marketSlug)
   const focusedMarket = resolveFocusedMarket(event, marketSlug)
-  const eventImageUrl = resolveEventImage(event, focusedMarket, siteUrl)
+  const eventImageUrl = await resolveEventImage(event, focusedMarket, siteUrl)
   const outcomeButtons = resolveOutcomeButtons(event, focusedMarket, explicitMarketRequested)
-  const leadButton = resolveLeadButton(outcomeButtons)
+  const headlineMetric = resolveHeadlineMetric(event, focusedMarket, explicitMarketRequested)
   const chartTokenId = resolveChartTokenId(focusedMarket)
   const chartHistory = await fetchMarketPriceHistory(chartTokenId, event.created_at, event.resolved_at)
   const chartData = buildChartData(chartHistory.length > 0 ? chartHistory : buildFallbackHistory(focusedMarket?.price ?? null))
-  const leadPriceLabel = leadButton?.price !== null && leadButton?.price !== undefined
-    ? formatPercent((leadButton.price ?? 0) * 100, { digits: 0 })
+  const headlinePriceLabel = headlineMetric.price !== null && headlineMetric.price !== undefined
+    ? formatPercent((headlineMetric.price ?? 0) * 100, { digits: 0 })
     : null
-  const volumeLabel = `${formatCompactCurrency(event.volume)} Vol.`
+  const volumeLabel = event.volume > 0 ? `${formatCompactCurrency(event.volume)} Vol.` : 'New market'
   const marketLabel = focusedMarket?.title?.trim() ?? ''
+  const imageTitle = marketLabel || event.title
   const chartEndPoint = chartData.points[chartData.points.length - 1] ?? null
 
   return new ImageResponse(
@@ -572,7 +635,7 @@ export async function GET(request: Request) {
             display: 'flex',
             overflow: 'hidden',
             borderRadius: '30px',
-            border: '2px solid #d4d4d8',
+            border: '1px solid #d4d4d8',
             background: '#ffffff',
             boxShadow: '0 14px 40px rgba(15, 23, 42, 0.08)',
           }}
@@ -584,7 +647,9 @@ export async function GET(request: Request) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              background: '#f3f4f6',
+              position: 'relative',
+              overflow: 'hidden',
+              background: '#e5e7eb',
             }}
           >
             {eventImageUrl
@@ -603,13 +668,53 @@ export async function GET(request: Request) {
                   />
                 )
               : renderFallbackImage(event.title)}
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.02) 0%, rgba(15, 23, 42, 0.48) 100%)',
+              }}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                left: '22px',
+                right: '22px',
+                bottom: '20px',
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  maxWidth: '100%',
+                  borderRadius: '14px',
+                  background: 'rgba(17, 24, 39, 0.78)',
+                  padding: '10px 14px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    fontSize: '18px',
+                    fontWeight: 700,
+                    lineHeight: 1.2,
+                    color: '#ffffff',
+                  }}
+                >
+                  {imageTitle}
+                </div>
+              </div>
+            </div>
           </div>
 
           <div
             style={{
-              width: '4px',
+              width: '1px',
               height: '100%',
-              background: '#111827',
+              background: '#e5e7eb',
             }}
           />
 
@@ -620,7 +725,7 @@ export async function GET(request: Request) {
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'space-between',
-              padding: '26px 28px 24px',
+              padding: '28px 30px 24px',
               background: '#ffffff',
             }}
           >
@@ -628,18 +733,42 @@ export async function GET(request: Request) {
               style={{
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '12px',
+                gap: '14px',
               }}
             >
               <div
                 style={{
                   display: 'flex',
-                  fontSize: '19px',
-                  fontWeight: 700,
-                  color: '#94a3b8',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  gap: '20px',
                 }}
               >
-                {volumeLabel}
+                <div
+                  style={{
+                    display: 'flex',
+                    fontSize: '19px',
+                    fontWeight: 700,
+                    color: '#94a3b8',
+                  }}
+                >
+                  {volumeLabel}
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    borderRadius: '999px',
+                    background: '#f8fafc',
+                    padding: '8px 14px',
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    color: '#94a3b8',
+                  }}
+                >
+                  {siteName}
+                </div>
               </div>
 
               <div
@@ -655,10 +784,14 @@ export async function GET(request: Request) {
                 {event.title}
               </div>
 
-              {marketLabel && explicitMarketRequested && (
+              {marketLabel && event.total_markets_count > 1 && (
                 <div
                   style={{
                     display: 'flex',
+                    alignSelf: 'flex-start',
+                    borderRadius: '999px',
+                    background: '#f8fafc',
+                    padding: '8px 14px',
                     fontSize: '18px',
                     fontWeight: 600,
                     color: '#64748b',
@@ -692,7 +825,7 @@ export async function GET(request: Request) {
                       color: '#111827',
                     }}
                   >
-                    {leadPriceLabel ?? '—'}
+                    {headlinePriceLabel ?? '—'}
                     {' '}
                     chance
                   </div>
@@ -717,16 +850,6 @@ export async function GET(request: Request) {
                   )}
                 </div>
 
-                <div
-                  style={{
-                    display: 'flex',
-                    fontSize: '16px',
-                    fontWeight: 700,
-                    color: '#c4c7ce',
-                  }}
-                >
-                  {siteName}
-                </div>
               </div>
             </div>
 
@@ -744,6 +867,9 @@ export async function GET(request: Request) {
                   height: `${CHART_HEIGHT}px`,
                   display: 'flex',
                   alignItems: 'center',
+                  borderRadius: '20px',
+                  background: '#f8fafc',
+                  padding: '18px 16px',
                 }}
               >
                 <svg
