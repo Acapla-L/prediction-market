@@ -700,7 +700,6 @@ export default function EventLiveSeriesChart({
   const liveColor = config.line_color || '#F59E0B'
   const priceDisplayDigits = config.show_price_decimals ? 2 : 0
   const headerPriceDisplayDigits = Math.max(2, priceDisplayDigits)
-  const deltaDisplayDigits = 0
   const subscriptionSymbol = useMemo(
     () => normalizeSubscriptionSymbol(config.topic, config.symbol),
     [config.symbol, config.topic],
@@ -1183,6 +1182,9 @@ export default function EventLiveSeriesChart({
   const delta = currentPrice != null && resolvedBaselinePrice != null
     ? currentPrice - resolvedBaselinePrice
     : null
+  const deltaDisplayDigits = delta != null && Math.abs(delta) >= 1
+    ? 0
+    : headerPriceDisplayDigits
   const rawAxisValues = useMemo(() => {
     const values = axisSourceData
       .map(point => point[SERIES_KEY])
