@@ -3,7 +3,7 @@
 import type { Market } from '@/types'
 import { CalendarIcon } from 'lucide-react'
 import { useExtracted } from 'next-intl'
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useId, useMemo, useState, useSyncExternalStore } from 'react'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -37,6 +37,7 @@ const frequencyOptions: Array<{ value: Frequency, label: string }> = [
 ]
 
 const defaultFrequency: Frequency = 'daily'
+const fallbackLocale = 'en-US'
 
 const FREQUENCY_FIDELITY_MINUTES: Record<Frequency, number> = {
   minutely: 1,
@@ -201,57 +202,62 @@ function buildCsvContent(
   return [header.join('\t'), ...rows.map(row => row.join('\t'))].join('\n')
 }
 
-export default function EventChartExportDialog({
-  open,
-  onOpenChange,
+function subscribeToNavigatorLanguage(onStoreChange: () => void) {
+  if (typeof window === 'undefined') {
+    return () => {}
+  }
+
+  window.addEventListener('languagechange', onStoreChange)
+  return () => window.removeEventListener('languagechange', onStoreChange)
+}
+
+function getNavigatorLanguage() {
+  if (typeof navigator === 'undefined' || !navigator.language) {
+    return fallbackLocale
+  }
+
+  return navigator.language
+}
+
+interface EventChartExportDialogBodyProps {
+  eventCreatedAt: string
+  markets: Market[]
+  isMultiMarket: boolean
+  isMobile: boolean
+}
+
+function EventChartExportDialogBody({
   eventCreatedAt,
   markets,
   isMultiMarket,
-}: EventChartExportDialogProps) {
+  isMobile,
+}: EventChartExportDialogBodyProps) {
   const site = useSiteIdentity()
   const t = useExtracted()
-  const isMobile = useIsMobile()
   const optionsListId = useId()
   const eventStartDate = useMemo(() => new Date(eventCreatedAt), [eventCreatedAt])
+  const openedAt = useMemo(() => new Date(Date.now()), [])
   const [frequency, setFrequency] = useState<Frequency>(defaultFrequency)
   const [fromDate, setFromDate] = useState<Date>(() => getDefaultFromDate(
     defaultFrequency,
     eventStartDate,
-    new Date(0),
+    openedAt,
   ))
-  const [toDate, setToDate] = useState<Date>(() => new Date(0))
   const [calendarOpen, setCalendarOpen] = useState(false)
   const [selectedOptions, setSelectedOptions] = useState<string[]>([])
   const [isDownloading, setIsDownloading] = useState(false)
-  const [locale, setLocale] = useState('en-US')
+  const locale = useSyncExternalStore(
+    subscribeToNavigatorLanguage,
+    getNavigatorLanguage,
+    () => fallbackLocale,
+  )
+  const toDate = openedAt
 
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-    const today = new Date(Date.now())
-    setToDate(today)
-    setFrequency(defaultFrequency)
-    setFromDate(getDefaultFromDate(defaultFrequency, eventStartDate, today))
-    setSelectedOptions([])
-    setCalendarOpen(false)
-  }, [open, eventStartDate])
-
-  useEffect(() => {
-    if (typeof navigator === 'undefined') {
-      return
-    }
-    if (navigator.language) {
-      setLocale(navigator.language)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-    setFromDate(getDefaultFromDate(frequency, eventStartDate, toDate))
-  }, [frequency, open, eventStartDate, toDate])
+  function handleFrequencyChange(value: string) {
+    const nextFrequency = value as Frequency
+    setFrequency(nextFrequency)
+    setFromDate(getDefaultFromDate(nextFrequency, eventStartDate, toDate))
+  }
 
   const optionItems = useMemo(
     () => markets.map(market => ({
@@ -353,7 +359,6 @@ export default function EventChartExportDialog({
     `,
   )
 
-  const dialogTitle = t('Download Price History')
   const dialogBody = (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-3">
@@ -402,7 +407,7 @@ export default function EventChartExportDialog({
 
         <div className="space-y-2">
           <Label className="text-sm font-semibold text-foreground">{t('Frequency')}</Label>
-          <Select value={frequency} onValueChange={value => setFrequency(value as Frequency)}>
+          <Select value={frequency} onValueChange={handleFrequencyChange}>
             <SelectTrigger className="w-full text-sm">
               <SelectValue />
             </SelectTrigger>
@@ -473,6 +478,32 @@ export default function EventChartExportDialog({
       </Button>
     </div>
   )
+
+  return dialogBody
+}
+
+export default function EventChartExportDialog({
+  open,
+  onOpenChange,
+  eventCreatedAt,
+  markets,
+  isMultiMarket,
+}: EventChartExportDialogProps) {
+  const t = useExtracted()
+  const isMobile = useIsMobile()
+  const dialogTitle = t('Download Price History')
+
+  const dialogBody = open
+    ? (
+        <EventChartExportDialogBody
+          key={eventCreatedAt}
+          eventCreatedAt={eventCreatedAt}
+          markets={markets}
+          isMultiMarket={isMultiMarket}
+          isMobile={isMobile}
+        />
+      )
+    : null
 
   if (isMobile) {
     return (
