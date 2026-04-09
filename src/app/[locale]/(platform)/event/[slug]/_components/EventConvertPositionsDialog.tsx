@@ -6,7 +6,7 @@ import type { UserPosition } from '@/types'
 import { useQueryClient } from '@tanstack/react-query'
 import { BadgeCheckIcon, Loader2Icon, LockKeyholeIcon, MoveDownIcon, MoveLeftIcon } from 'lucide-react'
 import { useExtracted } from 'next-intl'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { hashTypedData } from 'viem'
 import { useSignMessage } from 'wagmi'
@@ -80,6 +80,34 @@ export default function EventConvertPositionsDialog({
   isNegRiskAugmented = false,
   onOpenChange,
 }: EventConvertPositionsDialogProps) {
+  if (!open) {
+    return null
+  }
+
+  return (
+    <EventConvertPositionsDialogContent
+      options={options}
+      outcomes={outcomes}
+      eventId={eventId}
+      eventSlug={eventSlug}
+      negRiskMarketId={negRiskMarketId}
+      isNegRiskAugmented={isNegRiskAugmented}
+      onOpenChange={onOpenChange}
+    />
+  )
+}
+
+interface EventConvertPositionsDialogContentProps extends Omit<EventConvertPositionsDialogProps, 'open'> {}
+
+function EventConvertPositionsDialogContent({
+  options,
+  outcomes,
+  eventId,
+  eventSlug,
+  negRiskMarketId,
+  isNegRiskAugmented = false,
+  onOpenChange,
+}: EventConvertPositionsDialogContentProps) {
   const t = useExtracted()
   const queryClient = useQueryClient()
   const { ensureTradingReady, openTradeRequirements } = useTradingOnboarding()
@@ -88,30 +116,10 @@ export default function EventConvertPositionsDialog({
   const { signMessageAsync } = useSignMessage()
   const { runWithSignaturePrompt } = useSignaturePromptRunner()
   const checkboxBaseId = useId()
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(options.map(option => option.id)))
   const [amount, setAmount] = useState('0')
   const [step, setStep] = useState<'select' | 'review'>('select')
   const [submitState, setSubmitState] = useState<'idle' | 'signing' | 'submitting'>('idle')
-  const wasOpenRef = useRef(false)
-
-  useEffect(() => {
-    if (!open) {
-      setSelectedIds(new Set())
-      setAmount('0')
-      setStep('select')
-      setSubmitState('idle')
-      wasOpenRef.current = false
-      return
-    }
-
-    if (!wasOpenRef.current) {
-      setSelectedIds(new Set(options.map(option => option.id)))
-      setAmount('0')
-      setStep('select')
-      setSubmitState('idle')
-      wasOpenRef.current = true
-    }
-  }, [open, options])
 
   const selectedMax = useMemo(() => {
     let minValue: number | null = null
@@ -182,7 +190,7 @@ export default function EventConvertPositionsDialog({
     }
     return false
   }, [selectedConditionIds, questionIndexByCondition])
-  const hasSelection = selectedIds.size > 0
+  const hasSelection = selectedOptions.length > 0
   const numericAmount = Number(amount)
   const hasValidAmount = Number.isFinite(numericAmount) && numericAmount > 0
   const isReviewDisabled = !hasSelection || !hasValidAmount || hasMissingQuestionIndex
@@ -680,7 +688,7 @@ export default function EventConvertPositionsDialog({
 
   if (isMobile) {
     return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
+      <Drawer open onOpenChange={onOpenChange}>
         <DrawerContent className="max-h-[90vh] w-full bg-background px-4 pt-4 pb-6">
           <div className="space-y-6">
             {step === 'review'
@@ -705,7 +713,7 @@ export default function EventConvertPositionsDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm sm:max-w-md sm:p-6">
         <div className="space-y-6">
           {step === 'review'
