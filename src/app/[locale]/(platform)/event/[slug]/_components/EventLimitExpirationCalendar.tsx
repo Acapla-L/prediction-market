@@ -2,7 +2,7 @@
 
 import { Clock2Icon } from 'lucide-react'
 import { useExtracted } from 'next-intl'
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
@@ -47,34 +47,20 @@ export default function EventLimitExpirationCalendar({
   applyLabel,
 }: EventLimitExpirationCalendarProps) {
   const t = useExtracted()
-  const [minTimestampMs, setMinTimestampMs] = useState(0)
-  const initialDate = useMemo(() => value ?? new Date(0), [value])
-  const minDate = useMemo(() => new Date(minTimestampMs), [minTimestampMs])
-  const [selectedDate, setSelectedDate] = useState<Date>(() => initialDate)
-  const [timeValue, setTimeValue] = useState<string>(() => formatTimeInput(initialDate))
+  const [minTimestampMs] = useState(() => Date.now())
+  const [internalDate, setInternalDate] = useState<Date>(() => value ?? new Date(minTimestampMs))
+  const minDate = new Date(minTimestampMs)
+  const selectedDate = value ?? internalDate
+  const timeValue = formatTimeInput(selectedDate)
   const showActions = Boolean(onCancel || onApply)
   const resolvedCancelLabel = cancelLabel ?? t('Cancel')
   const resolvedApplyLabel = applyLabel ?? t('Apply')
-
-  useEffect(() => {
-    setMinTimestampMs(Date.now())
-  }, [])
-
-  useEffect(() => {
-    const nextDate = value ?? new Date(minTimestampMs)
-    setSelectedDate(nextDate)
-    setTimeValue(formatTimeInput(nextDate))
-  }, [value, minTimestampMs])
 
   function handleChange(nextDate: Date, nextTime = timeValue) {
     const mergedDate = mergeDateAndTime(nextDate, nextTime)
     const clampedDate = mergedDate < minDate ? minDate : mergedDate
 
-    if (clampedDate !== mergedDate) {
-      setTimeValue(formatTimeInput(clampedDate))
-    }
-
-    setSelectedDate(clampedDate)
+    setInternalDate(clampedDate)
     onChange?.(clampedDate)
   }
 
@@ -113,8 +99,7 @@ export default function EventLimitExpirationCalendar({
               value={timeValue}
               onChange={(event) => {
                 const nextTime = event.target.value || '00:00'
-                setTimeValue(nextTime)
-                handleChange(selectedDate ?? initialDate, nextTime)
+                handleChange(selectedDate, nextTime)
               }}
               className={`
                 appearance-none pl-8
