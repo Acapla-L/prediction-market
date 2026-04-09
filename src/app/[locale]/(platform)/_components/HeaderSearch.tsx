@@ -35,6 +35,7 @@ export default function HeaderSearch({
   const inputRef = useRef<HTMLInputElement>(null)
   const blurFrameRef = useRef<number | null>(null)
   const pointerDownInsideRef = useRef(false)
+  const showAttachedDropdownRef = useRef(false)
   const router = useRouter()
   const {
     query,
@@ -57,6 +58,7 @@ export default function HeaderSearch({
     && (isManagedSearchSurface || !isResultsDismissed)
   const showDiscoveryDropdown = showDesktopDiscovery && !emptyState && query.trim().length === 0 && hasFocusWithin && !isResultsDismissed
   const showAttachedDropdown = showDropdown || showDiscoveryDropdown
+  showAttachedDropdownRef.current = showAttachedDropdown
   const inputBaseClass = showAttachedDropdown ? 'bg-background' : 'bg-accent'
   const inputBorderClass = showAttachedDropdown ? 'border-border' : 'border-transparent'
   const inputHoverClass = showAttachedDropdown ? 'hover:bg-background' : 'hover:bg-secondary'
@@ -151,29 +153,33 @@ export default function HeaderSearch({
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
+      if (!showAttachedDropdownRef.current) {
+        return
+      }
+
       const isInsideSearch = searchRef.current?.contains(event.target as Node) ?? false
       pointerDownInsideRef.current = isInsideSearch
 
-      if (!isInsideSearch) {
-        clearPendingBlurFrame()
-        setHasFocusWithin(false)
-        setIsResultsDismissed(true)
-        hideResults()
-        inputRef.current?.blur()
+      if (isInsideSearch) {
+        return
       }
+
+      clearPendingBlurFrame()
+      setHasFocusWithin(false)
+      setIsResultsDismissed(true)
+      hideResults()
+      inputRef.current?.blur()
     }
 
     if (isManagedSearchSurface) {
       return
     }
 
-    if (showAttachedDropdown) {
-      document.addEventListener('pointerdown', handlePointerDown)
-      return () => {
-        document.removeEventListener('pointerdown', handlePointerDown)
-      }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
     }
-  }, [hideResults, isManagedSearchSurface, showAttachedDropdown])
+  }, [hideResults, isManagedSearchSurface])
 
   useEffect(() => () => clearPendingBlurFrame(), [])
 
