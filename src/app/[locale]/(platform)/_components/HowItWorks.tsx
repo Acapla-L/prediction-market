@@ -3,7 +3,7 @@
 import { InfoIcon } from 'lucide-react'
 import { useExtracted } from 'next-intl'
 import Image from 'next/image'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -31,6 +31,14 @@ interface HowItWorksProps {
   hideTrigger?: boolean
 }
 
+interface HowItWorksStep {
+  title: string
+  description: string
+  image: string
+  imageAlt: string
+  ctaLabel: string
+}
+
 export default function HowItWorks({
   displayMode = 'auto',
   open: controlledOpen,
@@ -41,9 +49,8 @@ export default function HowItWorks({
   const isMobile = useIsMobile()
   const { open } = useAppKit()
   const [uncontrolledIsOpen, setUncontrolledIsOpen] = useState(false)
-  const [activeStep, setActiveStep] = useState(0)
 
-  const steps = [
+  const steps: ReadonlyArray<HowItWorksStep> = [
     {
       title: t('1. Choose a Market'),
       description:
@@ -68,22 +75,13 @@ export default function HowItWorks({
       imageAlt: t('Illustration showing how profits work'),
       ctaLabel: t('Get Started'),
     },
-  ] as const
+  ]
 
-  const currentStep = steps[activeStep]
-  const isLastStep = activeStep === steps.length - 1
   const isOpen = controlledOpen ?? uncontrolledIsOpen
   const shouldUseMobileLayout = displayMode === 'auto'
     ? isMobile
     : displayMode === 'mobile'
-
-  useEffect(() => {
-    if (controlledOpen === undefined || controlledOpen) {
-      return
-    }
-
-    setActiveStep(0)
-  }, [controlledOpen])
+  const contentKey = isOpen ? 'open' : 'closed'
 
   function setOpen(nextOpen: boolean) {
     if (controlledOpen === undefined) {
@@ -94,21 +92,14 @@ export default function HowItWorks({
 
   function handleOpenChange(nextOpen: boolean) {
     setOpen(nextOpen)
-    setActiveStep(0)
   }
 
-  function handleNext() {
-    if (isLastStep) {
-      triggerConfetti('primary')
-      setOpen(false)
-      setActiveStep(0)
-      setTimeout(() => {
-        void open()
-      }, 1000)
-      return
-    }
-
-    setActiveStep(step => Math.min(step + 1, steps.length - 1))
+  function handleComplete() {
+    triggerConfetti('primary')
+    setOpen(false)
+    setTimeout(() => {
+      void open()
+    }, 1000)
   }
 
   if (shouldUseMobileLayout) {
@@ -129,43 +120,13 @@ export default function HowItWorks({
         )}
 
         <DrawerContent className="max-h-[95vh] gap-0 overflow-y-auto p-0" data-testid="how-it-works-dialog">
-          <div className="mt-2 h-85 overflow-hidden lg:rounded-t-lg">
-            <Image
-              src={currentStep.image}
-              alt={currentStep.imageAlt}
-              width={448}
-              height={252}
-              unoptimized
-              className="size-full object-cover"
-            />
-          </div>
-
-          <div className="flex flex-col gap-6 p-6">
-            <div className="flex items-center justify-center gap-2">
-              {steps.map((step, index) => (
-                <span
-                  key={step.title}
-                  className={cn(
-                    'h-1.5 w-8 rounded-full bg-muted transition-colors',
-                    { 'bg-primary': index === activeStep },
-                  )}
-                />
-              ))}
-            </div>
-
-            <DrawerHeader className="gap-2 p-0 text-left">
-              <DrawerTitle className="text-xl font-semibold">
-                {currentStep.title}
-              </DrawerTitle>
-              <DrawerDescription className="text-sm/relaxed">
-                {currentStep.description}
-              </DrawerDescription>
-            </DrawerHeader>
-
-            <Button size="lg" className="h-11 w-full" onClick={handleNext} data-testid="how-it-works-next-button">
-              {currentStep.ctaLabel}
-            </Button>
-          </div>
+          <HowItWorksContent
+            key={contentKey}
+            steps={steps}
+            imageWrapperClassName="mt-2 h-85 overflow-hidden lg:rounded-t-lg"
+            variant="mobile"
+            onComplete={handleComplete}
+          />
         </DrawerContent>
       </Drawer>
     )
@@ -189,44 +150,96 @@ export default function HowItWorks({
       )}
 
       <DialogContent className="max-h-[95vh] gap-0 overflow-y-auto p-0 sm:max-w-md" data-testid="how-it-works-dialog">
-        <div className="h-85 overflow-hidden rounded-t-lg">
-          <Image
-            src={currentStep.image}
-            alt={currentStep.imageAlt}
-            width={448}
-            height={252}
-            unoptimized
-            className="size-full object-cover"
-          />
-        </div>
-
-        <div className="flex flex-col gap-6 p-6">
-          <div className="flex items-center justify-center gap-2">
-            {steps.map((step, index) => (
-              <span
-                key={step.title}
-                className={cn(
-                  'h-1.5 w-8 rounded-full bg-muted transition-colors',
-                  { 'bg-primary': index === activeStep },
-                )}
-              />
-            ))}
-          </div>
-
-          <DialogHeader className="gap-2">
-            <DialogTitle className="text-xl font-semibold">
-              {currentStep.title}
-            </DialogTitle>
-            <DialogDescription className="text-sm/relaxed">
-              {currentStep.description}
-            </DialogDescription>
-          </DialogHeader>
-
-          <Button size="lg" className="h-11 w-full" onClick={handleNext} data-testid="how-it-works-next-button">
-            {currentStep.ctaLabel}
-          </Button>
-        </div>
+        <HowItWorksContent
+          key={contentKey}
+          steps={steps}
+          imageWrapperClassName="h-85 overflow-hidden rounded-t-lg"
+          variant="desktop"
+          onComplete={handleComplete}
+        />
       </DialogContent>
     </Dialog>
+  )
+}
+
+interface HowItWorksContentProps {
+  imageWrapperClassName: string
+  onComplete: () => void
+  steps: ReadonlyArray<HowItWorksStep>
+  variant: 'mobile' | 'desktop'
+}
+
+function HowItWorksContent({
+  imageWrapperClassName,
+  onComplete,
+  steps,
+  variant,
+}: HowItWorksContentProps) {
+  const [activeStep, setActiveStep] = useState(0)
+  const currentStep = steps[activeStep]
+  const isLastStep = activeStep === steps.length - 1
+
+  function handleNext() {
+    if (isLastStep) {
+      onComplete()
+      return
+    }
+
+    setActiveStep(step => Math.min(step + 1, steps.length - 1))
+  }
+
+  return (
+    <>
+      <div className={imageWrapperClassName}>
+        <Image
+          src={currentStep.image}
+          alt={currentStep.imageAlt}
+          width={448}
+          height={252}
+          unoptimized
+          className="size-full object-cover"
+        />
+      </div>
+
+      <div className="flex flex-col gap-6 p-6">
+        <div className="flex items-center justify-center gap-2">
+          {steps.map((step, index) => (
+            <span
+              key={step.title}
+              className={cn(
+                'h-1.5 w-8 rounded-full bg-muted transition-colors',
+                { 'bg-primary': index === activeStep },
+              )}
+            />
+          ))}
+        </div>
+
+        {variant === 'mobile'
+          ? (
+              <DrawerHeader className="gap-2 p-0 text-left">
+                <DrawerTitle className="text-xl font-semibold">
+                  {currentStep.title}
+                </DrawerTitle>
+                <DrawerDescription className="text-sm/relaxed">
+                  {currentStep.description}
+                </DrawerDescription>
+              </DrawerHeader>
+            )
+          : (
+              <DialogHeader className="gap-2">
+                <DialogTitle className="text-xl font-semibold">
+                  {currentStep.title}
+                </DialogTitle>
+                <DialogDescription className="text-sm/relaxed">
+                  {currentStep.description}
+                </DialogDescription>
+              </DialogHeader>
+            )}
+
+        <Button size="lg" className="h-11 w-full" onClick={handleNext} data-testid="how-it-works-next-button">
+          {currentStep.ctaLabel}
+        </Button>
+      </div>
+    </>
   )
 }
