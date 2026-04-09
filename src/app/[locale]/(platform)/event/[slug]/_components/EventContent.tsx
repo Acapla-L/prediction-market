@@ -1,5 +1,6 @@
 'use client'
 
+import type { ReadonlyURLSearchParams } from 'next/navigation'
 import type { ConditionChangeLogEntry, Event, EventLiveChartConfig, EventSeriesEntry, User } from '@/types'
 import { ArrowUpIcon } from 'lucide-react'
 import { useExtracted } from 'next-intl'
@@ -89,6 +90,78 @@ interface EventOrderQuerySyncProps {
   isMobile: boolean
 }
 
+interface ResolvedEventOrderQueryState {
+  appliedKey: string
+  market: Event['markets'][number]
+  targetOutcome: Event['markets'][number]['outcomes'][number] | null
+  normalizedSide: string | undefined
+  normalizedOrderType: string | undefined
+  sharesValue: string | null
+}
+
+function resolveEventOrderQueryState(
+  event: Event,
+  marketSlug: string | undefined,
+  searchParams: ReadonlyURLSearchParams,
+): ResolvedEventOrderQueryState | null {
+  const paramsKey = searchParams.toString()
+  if (!paramsKey) {
+    return null
+  }
+
+  const sideParam = searchParams.get('side')?.trim()
+  const orderTypeParam = searchParams.get('orderType')?.trim()
+  const outcomeIndexParam = searchParams.get('outcomeIndex')?.trim()
+  const sharesParam = searchParams.get('shares')?.trim()
+  const conditionIdParam = searchParams.get('conditionId')?.trim()
+
+  if (!sideParam && !orderTypeParam && !outcomeIndexParam && !sharesParam && !conditionIdParam) {
+    return null
+  }
+
+  const market = conditionIdParam
+    ? event.markets.find(item => item.condition_id === conditionIdParam)
+    : marketSlug
+      ? event.markets.find(item => item.slug === marketSlug)
+      : resolveDefaultMarket(event.markets)
+  if (!market) {
+    return null
+  }
+
+  const parsedOutcomeIndex = Number.parseInt(outcomeIndexParam ?? '', 10)
+  const resolvedOutcomeIndex = Number.isFinite(parsedOutcomeIndex)
+    ? parsedOutcomeIndex
+    : null
+  const targetOutcome = resolvedOutcomeIndex !== null
+    ? market.outcomes.find(outcome => outcome.outcome_index === resolvedOutcomeIndex)
+    ?? market.outcomes[resolvedOutcomeIndex]
+    ?? null
+    : null
+  const normalizedSide = sideParam?.toUpperCase()
+  const normalizedOrderType = orderTypeParam?.toUpperCase()
+  const parsedShares = sharesParam ? Number.parseFloat(sharesParam) : Number.NaN
+  const sharesValue = Number.isFinite(parsedShares) && parsedShares > 0
+    ? formatAmountInputValue(parsedShares)
+    : null
+
+  return {
+    appliedKey: `${event.id}:${marketSlug ?? ''}:${paramsKey}`,
+    market,
+    targetOutcome,
+    normalizedSide,
+    normalizedOrderType,
+    sharesValue,
+  }
+}
+
+function resolveBootstrapTargetMarket(event: Event, marketSlug?: string) {
+  if (marketSlug) {
+    return event.markets.find(market => market.slug === marketSlug) ?? null
+  }
+
+  return resolveDefaultMarket(event.markets) ?? null
+}
+
 function EventOrderQuerySync({ event, marketSlug, isMobile }: EventOrderQuerySyncProps) {
   const searchParams = useSearchParams()
   const setMarket = useOrder(state => state.setMarket)
@@ -99,76 +172,46 @@ function EventOrderQuerySync({ event, marketSlug, isMobile }: EventOrderQuerySyn
   const setLimitShares = useOrder(state => state.setLimitShares)
   const setIsMobileOrderPanelOpen = useOrder(state => state.setIsMobileOrderPanelOpen)
   const appliedOrderParamsRef = useRef<string | null>(null)
+  const resolvedQueryState = useMemo(
+    () => resolveEventOrderQueryState(event, marketSlug, searchParams),
+    [event, marketSlug, searchParams],
+  )
 
   useEffect(() => {
-    const paramsKey = searchParams.toString()
-    if (!paramsKey) {
+    if (!resolvedQueryState) {
       return
     }
 
-    const sideParam = searchParams.get('side')?.trim()
-    const orderTypeParam = searchParams.get('orderType')?.trim()
-    const outcomeIndexParam = searchParams.get('outcomeIndex')?.trim()
-    const sharesParam = searchParams.get('shares')?.trim()
-    const conditionIdParam = searchParams.get('conditionId')?.trim()
-
-    if (!sideParam && !orderTypeParam && !outcomeIndexParam && !sharesParam && !conditionIdParam) {
+    if (appliedOrderParamsRef.current === resolvedQueryState.appliedKey) {
       return
     }
+    appliedOrderParamsRef.current = resolvedQueryState.appliedKey
 
-    const appliedKey = `${event.id}:${marketSlug ?? ''}:${paramsKey}`
-    if (appliedOrderParamsRef.current === appliedKey) {
-      return
-    }
-    appliedOrderParamsRef.current = appliedKey
-
-    const market = conditionIdParam
-      ? event.markets.find(item => item.condition_id === conditionIdParam)
-      : marketSlug
-        ? event.markets.find(item => item.slug === marketSlug)
-        : resolveDefaultMarket(event.markets)
-    if (!market) {
-      return
+    setMarket(resolvedQueryState.market)
+    if (resolvedQueryState.targetOutcome) {
+      setOutcome(resolvedQueryState.targetOutcome)
     }
 
-    setMarket(market)
-
-    const parsedOutcomeIndex = Number.parseInt(outcomeIndexParam ?? '', 10)
-    const resolvedOutcomeIndex = Number.isFinite(parsedOutcomeIndex)
-      ? parsedOutcomeIndex
-      : null
-    if (resolvedOutcomeIndex !== null) {
-      const targetOutcome = market.outcomes.find(outcome => outcome.outcome_index === resolvedOutcomeIndex)
-        ?? market.outcomes[resolvedOutcomeIndex]
-      if (targetOutcome) {
-        setOutcome(targetOutcome)
-      }
-    }
-
-    const normalizedSide = sideParam?.toUpperCase()
-    if (normalizedSide === 'SELL') {
+    if (resolvedQueryState.normalizedSide === 'SELL') {
       setSide(ORDER_SIDE.SELL)
     }
-    else if (normalizedSide === 'BUY') {
+    else if (resolvedQueryState.normalizedSide === 'BUY') {
       setSide(ORDER_SIDE.BUY)
     }
 
-    const normalizedOrderType = orderTypeParam?.toUpperCase()
-    if (normalizedOrderType === 'LIMIT') {
+    if (resolvedQueryState.normalizedOrderType === 'LIMIT') {
       setType(ORDER_TYPE.LIMIT)
     }
-    else if (normalizedOrderType === 'MARKET') {
+    else if (resolvedQueryState.normalizedOrderType === 'MARKET') {
       setType(ORDER_TYPE.MARKET)
     }
 
-    const parsedShares = sharesParam ? Number.parseFloat(sharesParam) : Number.NaN
-    if (Number.isFinite(parsedShares) && parsedShares > 0) {
-      const sharesValue = formatAmountInputValue(parsedShares)
-      if (normalizedOrderType === 'LIMIT') {
-        setLimitShares(sharesValue)
+    if (resolvedQueryState.sharesValue) {
+      if (resolvedQueryState.normalizedOrderType === 'LIMIT') {
+        setLimitShares(resolvedQueryState.sharesValue)
       }
-      else if (normalizedSide === 'SELL') {
-        setAmount(sharesValue)
+      else if (resolvedQueryState.normalizedSide === 'SELL') {
+        setAmount(resolvedQueryState.sharesValue)
       }
     }
 
@@ -176,15 +219,13 @@ function EventOrderQuerySync({ event, marketSlug, isMobile }: EventOrderQuerySyn
       setIsMobileOrderPanelOpen(true)
     }
   }, [
-    event,
     isMobile,
-    marketSlug,
-    searchParams,
     setAmount,
     setIsMobileOrderPanelOpen,
     setLimitShares,
     setMarket,
     setOutcome,
+    resolvedQueryState,
     setSide,
     setType,
   ])
@@ -217,6 +258,10 @@ export default function EventContent({
   const currentUser = clientUser ?? user
   const isNegRiskEnabled = Boolean(event.enable_neg_risk || event.neg_risk)
   const shouldHideChart = event.total_markets_count > 1 && !isNegRiskEnabled
+  const orderBootstrapTargetMarket = useMemo(
+    () => resolveBootstrapTargetMarket(event, marketSlug),
+    [event, marketSlug],
+  )
   const initialMarket = useMemo(() => {
     if (marketSlug) {
       return event.markets.find(market => market.slug === marketSlug) ?? resolveDefaultMarket(event.markets) ?? null
@@ -282,10 +327,7 @@ export default function EventContent({
   }, [event, setEvent])
 
   useEffect(() => {
-    const targetMarket = marketSlug
-      ? event.markets.find(market => market.slug === marketSlug)
-      : resolveDefaultMarket(event.markets)
-    if (!targetMarket) {
+    if (!orderBootstrapTargetMarket) {
       return
     }
 
@@ -303,7 +345,7 @@ export default function EventContent({
     const currentOrderState = useOrder.getState()
     const nextSelection = resolveEventOrderBootstrapSelection({
       event,
-      targetMarket,
+      targetMarket: orderBootstrapTargetMarket,
       preserveSnapshotMarket: !marketSlug,
       snapshot: {
         eventId: currentOrderState.event?.id,
@@ -318,7 +360,7 @@ export default function EventContent({
     }
     appliedMarketSlugRef.current = marketSlug ?? null
     appliedEventIdRef.current = event.id
-  }, [currentEventId, currentMarketId, event, marketSlug, setMarket, setOutcome])
+  }, [currentEventId, currentMarketId, event, marketSlug, orderBootstrapTargetMarket, setMarket, setOutcome])
 
   useEffect(() => {
     if (isMobile) {
