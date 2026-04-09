@@ -47,34 +47,82 @@ interface EventChartEmbedDialogProps {
   initialMarketId?: string | null
 }
 
-type EmbedType = 'iframe' | 'web-component'
-const SITE_URL = normalizeEmbedBaseUrl(requireEmbedValue(process.env.SITE_URL, 'SITE_URL'))
+interface EditorState {
+  copied: boolean
+  embedType: EmbedType
+  selectedMarketId: string
+  showChart: boolean
+  showTimeRange: boolean
+  showVolume: boolean
+  theme: EmbedTheme
+}
 
+interface AffiliateSettingsState {
+  affiliateSharePercent: number | null
+  tradeFeePercent: number | null
+}
+
+type EmbedType = 'iframe' | 'web-component'
+
+const SITE_URL = normalizeEmbedBaseUrl(requireEmbedValue(process.env.SITE_URL, 'SITE_URL'))
 const IFRAME_HEIGHT_WITH_CHART = 400
 const IFRAME_HEIGHT_WITH_FILTERS = 440
 const IFRAME_HEIGHT_NO_CHART = 180
+const EMPTY_AFFILIATE_SETTINGS: AffiliateSettingsState = {
+  affiliateSharePercent: null,
+  tradeFeePercent: null,
+}
 
 function buildMarketLabel(market: Market) {
   return market.short_title?.trim() || market.title || market.slug
 }
 
-export default function EventChartEmbedDialog({
-  open,
-  onOpenChange,
+function getDefaultSelectedMarketId(markets: Market[], initialMarketId?: string | null) {
+  if (initialMarketId && markets.some(market => market.condition_id === initialMarketId)) {
+    return initialMarketId
+  }
+
+  return markets[0]?.condition_id ?? ''
+}
+
+function buildEditorKey(markets: Market[], initialMarketId?: string | null) {
+  return `${initialMarketId ?? ''}:${markets.map(market => market.condition_id).join('|')}`
+}
+
+function createInitialEditorState(markets: Market[], initialMarketId?: string | null): EditorState {
+  return {
+    copied: false,
+    embedType: 'iframe',
+    selectedMarketId: getDefaultSelectedMarketId(markets, initialMarketId),
+    showChart: false,
+    showTimeRange: false,
+    showVolume: false,
+    theme: 'light',
+  }
+}
+
+function EventChartEmbedDialogEditor({
   markets,
   initialMarketId,
-}: EventChartEmbedDialogProps) {
+}: Pick<EventChartEmbedDialogProps, 'markets' | 'initialMarketId'>) {
   const t = useExtracted()
   const site = useSiteIdentity()
-  const isMobile = useIsMobile()
-  const [theme, setTheme] = useState<EmbedTheme>('light')
-  const [embedType, setEmbedType] = useState<EmbedType>('iframe')
-  const [selectedMarketId, setSelectedMarketId] = useState<string>('')
-  const [showVolume, setShowVolume] = useState(false)
-  const [showChart, setShowChart] = useState(false)
-  const [showTimeRange, setShowTimeRange] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const user = useUser()
+  const [editorState, setEditorState] = useState(() => createInitialEditorState(markets, initialMarketId))
+  const [affiliateSettings, setAffiliateSettings] = useState(EMPTY_AFFILIATE_SETTINGS)
+  const affiliateCode = user?.affiliate_code?.trim() ?? ''
+  const {
+    copied,
+    embedType,
+    selectedMarketId,
+    showChart,
+    showTimeRange,
+    showVolume,
+    theme,
+  } = editorState
   const showMarketSelector = markets.length > 1
+  const showTimeRangeSelector = showChart
+  const effectiveShowTimeRange = showChart && showTimeRange
   const siteSlug = useMemo(() => {
     try {
       return slugifySiteName(site.name)
@@ -86,34 +134,9 @@ export default function EventChartEmbedDialog({
   const embedBaseUrl = SITE_URL
   const embedElementName = `${siteSlug}-market-embed`
   const embedIframeTitle = `${siteSlug}-market-iframe`
-  const user = useUser()
-  const affiliateCode = user?.affiliate_code?.trim() ?? ''
-  const [affiliateSharePercent, setAffiliateSharePercent] = useState<number | null>(null)
-  const [tradeFeePercent, setTradeFeePercent] = useState<number | null>(null)
 
   useEffect(() => {
-    if (!open) {
-      return
-    }
-    setTheme('light')
-    setEmbedType('iframe')
-    setShowVolume(false)
-    setShowChart(false)
-    setShowTimeRange(false)
-    setCopied(false)
-    setSelectedMarketId(initialMarketId ?? markets[0]?.condition_id ?? '')
-  }, [open, initialMarketId, markets])
-
-  useEffect(() => {
-    if (!showChart) {
-      setShowTimeRange(false)
-    }
-  }, [showChart])
-
-  useEffect(() => {
-    if (!affiliateCode || !open) {
-      setAffiliateSharePercent(null)
-      setTradeFeePercent(null)
+    if (!affiliateCode) {
       return
     }
 
@@ -124,38 +147,33 @@ export default function EventChartEmbedDialog({
         if (!isActive) {
           return
         }
+
         if (result.success) {
           const shareParsed = Number.parseFloat(result.data.affiliateSharePercent)
           const feeParsed = Number.parseFloat(result.data.tradeFeePercent)
-          setAffiliateSharePercent(Number.isFinite(shareParsed) && shareParsed > 0 ? shareParsed : null)
-          setTradeFeePercent(Number.isFinite(feeParsed) && feeParsed > 0 ? feeParsed : null)
+
+          setAffiliateSettings({
+            affiliateSharePercent: Number.isFinite(shareParsed) && shareParsed > 0 ? shareParsed : null,
+            tradeFeePercent: Number.isFinite(feeParsed) && feeParsed > 0 ? feeParsed : null,
+          })
+          return
         }
-        else {
-          setAffiliateSharePercent(null)
-          setTradeFeePercent(null)
-        }
+
+        setAffiliateSettings(EMPTY_AFFILIATE_SETTINGS)
       })
       .catch(() => {
         if (isActive) {
-          setAffiliateSharePercent(null)
-          setTradeFeePercent(null)
+          setAffiliateSettings(EMPTY_AFFILIATE_SETTINGS)
         }
       })
 
     return () => {
       isActive = false
     }
-  }, [affiliateCode, open])
+  }, [affiliateCode])
 
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-    if (!markets.some(market => market.condition_id === selectedMarketId)) {
-      setSelectedMarketId(initialMarketId ?? markets[0]?.condition_id ?? '')
-    }
-  }, [open, markets, selectedMarketId, initialMarketId])
-
+  const affiliateSharePercent = affiliateCode ? affiliateSettings.affiliateSharePercent : null
+  const tradeFeePercent = affiliateCode ? affiliateSettings.tradeFeePercent : null
   const marketOptions = useMemo(
     () => markets.map(market => ({
       id: market.condition_id,
@@ -165,10 +183,9 @@ export default function EventChartEmbedDialog({
   )
   const selectedMarket = markets.find(market => market.condition_id === selectedMarketId) ?? markets[0]
   const marketSlug = selectedMarket?.slug ?? ''
-
   const features = useMemo(
-    () => buildFeatureList(showVolume, showChart, showTimeRange),
-    [showVolume, showChart, showTimeRange],
+    () => buildFeatureList(showVolume, showChart, effectiveShowTimeRange),
+    [showVolume, showChart, effectiveShowTimeRange],
   )
   const iframeSrc = useMemo(
     () => buildIframeSrc(embedBaseUrl, marketSlug, theme, features, affiliateCode),
@@ -179,18 +196,17 @@ export default function EventChartEmbedDialog({
     [marketSlug, theme, features, affiliateCode],
   )
   const iframeHeight = showChart
-    ? (showTimeRange ? IFRAME_HEIGHT_WITH_FILTERS : IFRAME_HEIGHT_WITH_CHART)
+    ? (effectiveShowTimeRange ? IFRAME_HEIGHT_WITH_FILTERS : IFRAME_HEIGHT_WITH_CHART)
     : IFRAME_HEIGHT_NO_CHART
   const iframeCode = useMemo(
     () => buildIframeCode(iframeSrc, iframeHeight, embedIframeTitle),
     [embedIframeTitle, iframeSrc, iframeHeight],
   )
   const webComponentCode = useMemo(
-    () => buildWebComponentCode(embedElementName, marketSlug, theme, showVolume, showChart, showTimeRange, affiliateCode),
-    [embedElementName, marketSlug, theme, showVolume, showChart, showTimeRange, affiliateCode],
+    () => buildWebComponentCode(embedElementName, marketSlug, theme, showVolume, showChart, effectiveShowTimeRange, affiliateCode),
+    [embedElementName, marketSlug, theme, showVolume, showChart, effectiveShowTimeRange, affiliateCode],
   )
   const activeCode = embedType === 'iframe' ? iframeCode : webComponentCode
-
   const iframeLines = useMemo<EmbedCodeLine[]>(() => ([
     tagOpenLine('', 'iframe'),
     attributeLine('\t', 'title', embedIframeTitle),
@@ -200,7 +216,6 @@ export default function EventChartEmbedDialog({
     attributeLine('\t', 'frameBorder', '0'),
     tagSelfCloseLine(''),
   ]), [embedIframeTitle, iframeSrc, iframeHeight])
-
   const webComponentLines = useMemo<EmbedCodeLine[]>(() => {
     const lines: EmbedCodeLine[] = [
       tagWithAttributeLine('', 'div', 'id', embedElementName, '>'),
@@ -219,7 +234,7 @@ export default function EventChartEmbedDialog({
     if (showChart) {
       lines.push(attributeLine('\t\t', 'chart', 'true'))
     }
-    if (showChart && showTimeRange) {
+    if (showChart && effectiveShowTimeRange) {
       lines.push(attributeLine('\t\t', 'filters', 'true'))
     }
     if (affiliateCode) {
@@ -231,13 +246,64 @@ export default function EventChartEmbedDialog({
     lines.push(tagCloseLine('', 'div'))
 
     return lines
-  }, [affiliateCode, embedElementName, marketSlug, showChart, showTimeRange, showVolume, theme])
+  }, [affiliateCode, embedElementName, marketSlug, showChart, effectiveShowTimeRange, showVolume, theme])
+
+  function handleThemeChange(nextTheme: EmbedTheme) {
+    setEditorState(current => ({
+      ...current,
+      theme: nextTheme,
+    }))
+  }
+
+  function handleMarketChange(nextMarketId: string) {
+    setEditorState(current => ({
+      ...current,
+      selectedMarketId: nextMarketId,
+    }))
+  }
+
+  function handleShowVolumeChange(nextShowVolume: boolean) {
+    setEditorState(current => ({
+      ...current,
+      showVolume: nextShowVolume,
+    }))
+  }
+
+  function handleShowChartChange(nextShowChart: boolean) {
+    setEditorState(current => ({
+      ...current,
+      showChart: nextShowChart,
+      showTimeRange: nextShowChart ? current.showTimeRange : false,
+    }))
+  }
+
+  function handleShowTimeRangeChange(nextShowTimeRange: boolean) {
+    setEditorState(current => ({
+      ...current,
+      showTimeRange: nextShowTimeRange,
+    }))
+  }
+
+  function handleEmbedTypeChange(nextEmbedType: EmbedType) {
+    setEditorState(current => ({
+      ...current,
+      embedType: nextEmbedType,
+    }))
+  }
 
   async function handleCopy() {
     try {
       await navigator.clipboard.writeText(activeCode)
-      setCopied(true)
-      window.setTimeout(setCopied, 1500, false)
+      setEditorState(current => ({
+        ...current,
+        copied: true,
+      }))
+      window.setTimeout(() => {
+        setEditorState(current => ({
+          ...current,
+          copied: false,
+        }))
+      }, 1500)
       maybeShowAffiliateToast({
         affiliateCode,
         affiliateSharePercent,
@@ -251,7 +317,7 @@ export default function EventChartEmbedDialog({
     }
   }
 
-  const dialogBody = (
+  return (
     <div className="grid items-stretch gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="order-2 min-w-0 space-y-6 lg:order-1">
         <div className="space-y-3">
@@ -267,7 +333,7 @@ export default function EventChartEmbedDialog({
                     ? 'border-primary bg-primary text-primary-foreground'
                     : 'border-border bg-muted text-muted-foreground hover:text-foreground',
                 )}
-                onClick={() => setTheme(option)}
+                onClick={() => handleThemeChange(option)}
               >
                 {option === 'light' ? t('Light') : t('Dark')}
               </button>
@@ -279,7 +345,7 @@ export default function EventChartEmbedDialog({
           ? (
               <div className="space-y-3">
                 <Label className="text-xs font-semibold tracking-wide text-muted-foreground">{t('MARKET')}</Label>
-                <Select value={selectedMarketId} onValueChange={setSelectedMarketId}>
+                <Select value={selectedMarketId} onValueChange={handleMarketChange}>
                   <SelectTrigger className={`
                     w-full bg-transparent text-sm
                     hover:bg-transparent
@@ -307,17 +373,17 @@ export default function EventChartEmbedDialog({
             <div className="flex flex-col gap-3 text-sm font-semibold text-foreground">
               <label className="flex items-center justify-between gap-4">
                 <span>{t('Show Volume')}</span>
-                <Switch checked={showVolume} onCheckedChange={setShowVolume} />
+                <Switch checked={showVolume} onCheckedChange={handleShowVolumeChange} />
               </label>
               <label className="flex items-center justify-between gap-4">
                 <span>{t('Show Chart')}</span>
-                <Switch checked={showChart} onCheckedChange={setShowChart} />
+                <Switch checked={showChart} onCheckedChange={handleShowChartChange} />
               </label>
-              {showChart
+              {showTimeRangeSelector
                 ? (
                     <label className="flex items-center justify-between gap-4">
                       <span>{t('Show Time Range Selector')}</span>
-                      <Switch checked={showTimeRange} onCheckedChange={setShowTimeRange} />
+                      <Switch checked={effectiveShowTimeRange} onCheckedChange={handleShowTimeRangeChange} />
                     </label>
                   )
                 : null}
@@ -329,7 +395,7 @@ export default function EventChartEmbedDialog({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Label className="text-xs font-semibold tracking-wide text-muted-foreground">{t('EMBED CODE')}</Label>
             <div className="flex items-center gap-2">
-              <Select value={embedType} onValueChange={value => setEmbedType(value as EmbedType)}>
+              <Select value={embedType} onValueChange={value => handleEmbedTypeChange(value as EmbedType)}>
                 <SelectTrigger size="sm">
                   <SelectValue />
                 </SelectTrigger>
@@ -368,6 +434,20 @@ export default function EventChartEmbedDialog({
       </div>
     </div>
   )
+}
+
+export default function EventChartEmbedDialog({
+  open,
+  onOpenChange,
+  markets,
+  initialMarketId,
+}: EventChartEmbedDialogProps) {
+  const t = useExtracted()
+  const isMobile = useIsMobile()
+  const editorKey = buildEditorKey(markets, initialMarketId)
+  const dialogBody = open
+    ? <EventChartEmbedDialogEditor key={editorKey} markets={markets} initialMarketId={initialMarketId} />
+    : null
 
   if (isMobile) {
     return (
