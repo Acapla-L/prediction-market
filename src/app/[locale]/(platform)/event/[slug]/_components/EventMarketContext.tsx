@@ -44,9 +44,26 @@ function formatContextUpdatedLabel(updatedAtMs: number | null) {
 }
 
 export default function EventMarketContext({ event, marketConditionId = null }: EventMarketContextProps) {
-  const t = useExtracted()
   const state = useOrder()
   const resolvedMarketConditionId = marketConditionId ?? state.market?.condition_id ?? undefined
+  const contextKey = `${event.slug}:${resolvedMarketConditionId ?? 'none'}`
+
+  return (
+    <EventMarketContextContent
+      key={contextKey}
+      event={event}
+      resolvedMarketConditionId={resolvedMarketConditionId}
+    />
+  )
+}
+
+interface EventMarketContextContentProps {
+  event: Event
+  resolvedMarketConditionId?: string
+}
+
+function EventMarketContextContent({ event, resolvedMarketConditionId }: EventMarketContextContentProps) {
+  const t = useExtracted()
   const [isExpanded, setIsExpanded] = useState(false)
   const [context, setContext] = useState<string | null>(null)
   const [displayedContext, setDisplayedContext] = useState('')
@@ -108,13 +125,6 @@ export default function EventMarketContext({ event, marketConditionId = null }: 
   }
 
   useEffect(() => {
-    setError(null)
-    setContext(null)
-    setIsExpanded(false)
-    setHasGenerated(false)
-    setCacheExpiresAtMs(null)
-    setContextUpdatedAtMs(null)
-
     if (!resolvedMarketConditionId) {
       return
     }
