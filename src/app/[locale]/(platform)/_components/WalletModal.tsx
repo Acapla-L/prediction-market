@@ -85,6 +85,19 @@ const WITHDRAW_CHAIN_OPTIONS = [
   { value: 'Optimism', label: 'Optimism', icon: '/images/withdraw/chain/optimism.svg', enabled: false },
 ] as const
 
+function getSelectedWalletTokenId(items: LiFiWalletTokenItem[], preferredSelectedTokenId: string) {
+  if (!items.length) {
+    return ''
+  }
+
+  if (preferredSelectedTokenId && items.some(item => item.id === preferredSelectedTokenId && !item.disabled)) {
+    return preferredSelectedTokenId
+  }
+
+  const firstEnabledItem = items.find(item => !item.disabled)
+  return firstEnabledItem?.id ?? items[0].id
+}
+
 type WalletDepositView = 'fund' | 'receive' | 'wallets' | 'amount' | 'confirm' | 'success'
 
 interface PendingWithdrawalItem {
@@ -1798,7 +1811,7 @@ export function WalletDepositModal(props: WalletDepositModalProps) {
   const siteLabel = siteName ?? site.name
   const tokensQueryEnabled = open && (view === 'wallets' || view === 'amount' || view === 'confirm')
   const { items: walletTokenItems, isLoadingTokens } = useLiFiWalletTokens(walletEoaAddress, { enabled: tokensQueryEnabled })
-  const [selectedTokenId, setSelectedTokenId] = useState('')
+  const [preferredSelectedTokenId, setPreferredSelectedTokenId] = useState('')
   const [amountValue, setAmountValue] = useState('')
   const [confirmRefreshIndex, setConfirmRefreshIndex] = useState(0)
   const formattedBalance = walletBalance && walletBalance !== ''
@@ -1817,22 +1830,7 @@ export function WalletDepositModal(props: WalletDepositModalProps) {
         </>
       )
 
-  useEffect(() => {
-    if (!walletTokenItems.length) {
-      setSelectedTokenId('')
-      return
-    }
-
-    setSelectedTokenId((currentSelectedId) => {
-      if (currentSelectedId && walletTokenItems.some(item => item.id === currentSelectedId && !item.disabled)) {
-        return currentSelectedId
-      }
-
-      const firstEnabledItem = walletTokenItems.find(item => !item.disabled)
-      return firstEnabledItem?.id ?? walletTokenItems[0].id
-    })
-  }, [walletTokenItems])
-
+  const selectedTokenId = getSelectedWalletTokenId(walletTokenItems, preferredSelectedTokenId)
   const selectedToken = walletTokenItems.find(item => item.id === selectedTokenId) ?? null
   const { quote } = useLiFiQuote({
     fromToken: selectedToken,
@@ -1873,7 +1871,7 @@ export function WalletDepositModal(props: WalletDepositModalProps) {
               items={walletTokenItems}
               isLoadingTokens={isLoadingTokens}
               selectedId={selectedTokenId}
-              onSelect={setSelectedTokenId}
+              onSelect={setPreferredSelectedTokenId}
             />
           )
         : view === 'amount'
