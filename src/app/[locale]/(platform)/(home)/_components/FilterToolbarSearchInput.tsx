@@ -1,8 +1,9 @@
 'use client'
 
+import type { ChangeEvent } from 'react'
 import { SearchIcon } from 'lucide-react'
 import { useExtracted } from 'next-intl'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Input } from '@/components/ui/input'
 
 interface FilterToolbarSearchInputProps {
@@ -11,30 +12,69 @@ interface FilterToolbarSearchInputProps {
 }
 
 export default function FilterToolbarSearchInput({ search, onSearchChange }: FilterToolbarSearchInputProps) {
-  const [searchQuery, setSearchQuery] = useState(search)
-  const isFirstRenderRef = useRef(true)
-  const prevSearchRef = useRef(search)
+  const resetKeyRef = useRef(0)
+  const lastRenderedSearchRef = useRef(search)
+  const lastSubmittedSearchRef = useRef(search)
+
+  if (search !== lastRenderedSearchRef.current) {
+    const isExternalSearchUpdate = search !== lastSubmittedSearchRef.current
+
+    lastRenderedSearchRef.current = search
+    lastSubmittedSearchRef.current = search
+
+    if (isExternalSearchUpdate) {
+      resetKeyRef.current += 1
+    }
+  }
+
+  const handleSearchChange = useCallback((nextSearch: string) => {
+    lastSubmittedSearchRef.current = nextSearch
+    onSearchChange(nextSearch)
+  }, [onSearchChange])
+
+  return (
+    <FilterToolbarSearchInputField
+      key={resetKeyRef.current}
+      initialSearch={search}
+      onSearchChange={handleSearchChange}
+    />
+  )
+}
+
+interface FilterToolbarSearchInputFieldProps {
+  initialSearch: string
+  onSearchChange: (search: string) => void
+}
+
+function FilterToolbarSearchInputField({
+  initialSearch,
+  onSearchChange,
+}: FilterToolbarSearchInputFieldProps) {
+  const [searchQuery, setSearchQuery] = useState(initialSearch)
+  const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const t = useExtracted()
 
   useEffect(() => {
-    if (prevSearchRef.current !== search) {
-      prevSearchRef.current = search
-      setSearchQuery(search)
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current)
+      }
     }
-  }, [search])
+  }, [])
 
-  useEffect(() => {
-    if (isFirstRenderRef.current) {
-      isFirstRenderRef.current = false
-      return
+  const handleInputChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    const nextSearch = event.target.value
+    setSearchQuery(nextSearch)
+
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current)
     }
 
-    const handler = setTimeout(() => {
-      onSearchChange(searchQuery)
+    debounceTimeoutRef.current = setTimeout(() => {
+      debounceTimeoutRef.current = null
+      onSearchChange(nextSearch)
     }, 150)
-
-    return () => clearTimeout(handler)
-  }, [searchQuery, onSearchChange])
+  }, [onSearchChange])
 
   const iconClasses = 'pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground'
 
@@ -46,7 +86,7 @@ export default function FilterToolbarSearchInput({ search, onSearchChange }: Fil
         data-testid="filter-search-input"
         placeholder={t('Search')}
         value={searchQuery}
-        onChange={e => setSearchQuery(e.target.value)}
+        onChange={handleInputChange}
         className={`
           border-transparent bg-accent pl-10 shadow-none transition-colors
           hover:bg-secondary
