@@ -47,6 +47,28 @@ export function buildMarketSignature(event: Event) {
     .join('|')
 }
 
+export function resolveEventHistoryEndAt(event: Event) {
+  const resolvedAt = event.resolved_at ?? null
+  if (resolvedAt) {
+    const resolvedMs = new Date(resolvedAt).getTime()
+    if (Number.isFinite(resolvedMs)) {
+      return resolvedAt
+    }
+  }
+
+  if (event.status === 'resolved' || event.status === 'archived') {
+    const endDate = event.end_date ?? null
+    if (!endDate) {
+      return null
+    }
+
+    const endDateMs = new Date(endDate).getTime()
+    return Number.isFinite(endDateMs) ? endDate : null
+  }
+
+  return null
+}
+
 export function computeChanceChanges(
   points: Array<Record<string, number | Date> & { date: Date }>,
   currentOverrides: Record<string, number> = {},

@@ -1,6 +1,6 @@
 import type { Event, Outcome } from '@/types'
-import { useEffect, useMemo } from 'react'
-import { useEventOutcomeChanceChanges, useEventOutcomeChances, useMarketYesPrices } from '@/app/[locale]/(platform)/event/[slug]/_components/EventOutcomeChanceProvider'
+import { useMemo } from 'react'
+import { useEventMarketChanceData } from '@/app/[locale]/(platform)/event/[slug]/_hooks/useEventMarketChanceData'
 import { OUTCOME_INDEX } from '@/lib/constants'
 import { toCents } from '@/lib/formatters'
 import { resolveFallbackOutcomeUnitPrice } from '@/lib/market-pricing'
@@ -113,24 +113,21 @@ export function buildEventMarketRows(
 }
 
 export function useEventMarketRows(event: Event): EventMarketRowsResult {
-  const outcomeChances = useEventOutcomeChances()
-  const outcomeChanceChanges = useEventOutcomeChanceChanges()
-  const marketYesPrices = useMarketYesPrices()
+  const {
+    chanceChangeByMarket,
+    displayChanceByMarket,
+    yesPriceHistory,
+  } = useEventMarketChanceData({
+    event,
+    range: 'ALL',
+  })
 
-  const result = useMemo(
+  return useMemo(
     () => buildEventMarketRows(event, {
-      outcomeChances,
-      outcomeChanceChanges,
-      marketYesPrices,
+      outcomeChances: displayChanceByMarket,
+      outcomeChanceChanges: chanceChangeByMarket,
+      marketYesPrices: yesPriceHistory.latestRawPrices,
     }),
-    [event, outcomeChances, outcomeChanceChanges, marketYesPrices],
+    [chanceChangeByMarket, displayChanceByMarket, event, yesPriceHistory.latestRawPrices],
   )
-
-  useEffect(() => {
-    if (!result.hasChanceData) {
-      console.info('[MarketRows] Chance data unavailable, rendering placeholders for event', event.id)
-    }
-  }, [event.id, result.hasChanceData])
-
-  return result
 }
