@@ -25,12 +25,15 @@ interface EventCommentsProps {
   user: User | null
 }
 
+interface InfiniteScrollErrorState {
+  contextKey: string
+  message: string
+}
+
 export default function EventComments({ event, user }: EventCommentsProps) {
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
-  const [expandedComments, setExpandedComments] = useState<Set<string>>(() => new Set())
-  const [isInitialized, setIsInitialized] = useState(false)
-  const [infiniteScrollError, setInfiniteScrollError] = useState<string | null>(null)
+  const [infiniteScrollError, setInfiniteScrollError] = useState<InfiniteScrollErrorState | null>(null)
   const [sortBy, setSortBy] = useState<'newest' | 'most_liked'>('newest')
   const [holdersOnly, setHoldersOnly] = useState(false)
   const holdersCheckboxId = useId()
@@ -68,6 +71,32 @@ export default function EventComments({ event, user }: EventCommentsProps) {
     loadRepliesError,
     retryLoadReplies,
   } = useInfiniteComments(event.slug, sortBy, user, holdersOnly)
+  const isInitialized = status === 'success'
+  const infiniteScrollContextKey = `${sortBy}:${holdersOnly}:${comments.length}`
+  const visibleInfiniteScrollError = infiniteScrollError?.contextKey === infiniteScrollContextKey
+    ? infiniteScrollError.message
+    : null
+  const expandedComments = useMemo(() => {
+    return new Set(
+      comments
+        .filter(comment => (comment.recent_replies?.length ?? 0) > 3)
+        .map(comment => comment.id),
+    )
+  }, [comments])
+
+  const handleFetchNextPage = useCallback(async () => {
+    setInfiniteScrollError(null)
+
+    try {
+      await fetchNextPage()
+    }
+    catch (error) {
+      setInfiniteScrollError({
+        contextKey: infiniteScrollContextKey,
+        message: error instanceof Error ? error.message : 'Failed to load more comments',
+      })
+    }
+  }, [fetchNextPage, infiniteScrollContextKey])
 
   useEffect(() => {
     function handleScroll() {
@@ -76,55 +105,19 @@ export default function EventComments({ event, user }: EventCommentsProps) {
       const documentHeight = document.documentElement.scrollHeight
 
       if (scrollTop + windowHeight >= documentHeight - 1000) {
-        if (hasNextPage && !isFetchingNextPage && isInitialized) {
-          fetchNextPage().catch((error) => {
-            setInfiniteScrollError(error.message || 'Failed to load more comments')
-          })
+        if (hasNextPage && !isFetchingNextPage && isInitialized && !visibleInfiniteScrollError) {
+          void handleFetchNextPage()
         }
       }
     }
 
     window.addEventListener('scroll', handleScroll)
     return () => window.removeEventListener('scroll', handleScroll)
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage, isInitialized])
-
-  useEffect(() => {
-    if (status === 'success' && !isInitialized) {
-      queueMicrotask(() => setIsInitialized(true))
-    }
-  }, [status, isInitialized])
-
-  useEffect(() => {
-    queueMicrotask(() => setInfiniteScrollError(null))
-  }, [comments.length])
+  }, [handleFetchNextPage, hasNextPage, isFetchingNextPage, isInitialized, visibleInfiniteScrollError])
 
   const handleRepliesLoaded = useCallback((commentId: string) => {
     loadMoreReplies(commentId)
   }, [loadMoreReplies])
-
-  useEffect(() => {
-    const autoExpandedIds = comments
-      .filter(comment => (comment.recent_replies?.length ?? 0) > 3)
-      .map(comment => comment.id)
-
-    if (autoExpandedIds.length === 0) {
-      return
-    }
-
-    setExpandedComments((previous) => {
-      let changed = false
-      const next = new Set(previous)
-
-      autoExpandedIds.forEach((commentId) => {
-        if (!next.has(commentId)) {
-          next.add(commentId)
-          changed = true
-        }
-      })
-
-      return changed ? next : previous
-    })
-  }, [comments])
 
   const handleLikeToggled = useCallback((commentId: string) => {
     toggleCommentLike(commentId)
@@ -143,11 +136,28 @@ export default function EventComments({ event, user }: EventCommentsProps) {
   }, [deleteComment])
 
   const retryInfiniteScroll = useCallback(() => {
+    void handleFetchNextPage()
+  }, [handleFetchNextPage])
+
+  const handleRefetch = useCallback(() => {
     setInfiniteScrollError(null)
-    fetchNextPage().catch((error) => {
-      setInfiniteScrollError(error.message || 'Failed to load more comments')
-    })
-  }, [fetchNextPage])
+    void refetch()
+  }, [refetch])
+
+  const handleCommentAdded = useCallback(() => {
+    setInfiniteScrollError(null)
+    void refetch()
+  }, [refetch])
+
+  const handleSortChange = useCallback((value: string) => {
+    setInfiniteScrollError(null)
+    setSortBy(value as 'newest' | 'most_liked')
+  }, [])
+
+  const handleHoldersOnlyChange = useCallback((checked: boolean | 'indeterminate') => {
+    setInfiniteScrollError(null)
+    setHoldersOnly(Boolean(checked))
+  }, [])
 
   if (error) {
     return (
@@ -157,7 +167,7 @@ export default function EventComments({ event, user }: EventCommentsProps) {
           description={(
             <Button
               type="button"
-              onClick={() => refetch()}
+              onClick={handleRefetch}
               size="sm"
               variant="link"
               className="-ml-3"
@@ -176,14 +186,14 @@ export default function EventComments({ event, user }: EventCommentsProps) {
         user={user}
         createComment={createComment}
         isCreatingComment={isCreatingComment}
-        onCommentAddedAction={() => refetch()}
+        onCommentAddedAction={handleCommentAdded}
       />
       <Badge className="mt-2 h-8 w-full md:hidden [&>svg]:size-4" variant="outline">
         <ShieldIcon />
         {t('Beware of external links')}
       </Badge>
       <div className="mt-3 flex items-center gap-3">
-        <Select value={sortBy} onValueChange={value => setSortBy(value as 'newest' | 'most_liked')}>
+        <Select value={sortBy} onValueChange={handleSortChange}>
           <SelectTrigger size="default" className="h-9 px-3 text-sm dark:bg-transparent">
             <SelectValue />
           </SelectTrigger>
@@ -204,7 +214,7 @@ export default function EventComments({ event, user }: EventCommentsProps) {
           <Checkbox
             id={holdersCheckboxId}
             checked={holdersOnly}
-            onCheckedChange={checked => setHoldersOnly(Boolean(checked))}
+            onCheckedChange={handleHoldersOnlyChange}
             className="size-5 rounded-sm dark:bg-transparent"
           />
           {t('Holders')}
@@ -265,7 +275,7 @@ export default function EventComments({ event, user }: EventCommentsProps) {
           </div>
         )}
 
-        {infiniteScrollError && (
+        {visibleInfiniteScrollError && (
           <div className="mt-6">
             <AlertBanner
               title="Error loading more comments"

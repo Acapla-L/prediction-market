@@ -133,11 +133,12 @@ export function useInfiniteComments(
   const fetchNextPageWithErrorHandling = useCallback(async () => {
     try {
       setInfiniteScrollError(null)
-      await fetchNextPage()
+      return await fetchNextPage()
     }
     catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to load more comments')
       setInfiniteScrollError(error)
+      throw error
     }
   }, [fetchNextPage])
 
