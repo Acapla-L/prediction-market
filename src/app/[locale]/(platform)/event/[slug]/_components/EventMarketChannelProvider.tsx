@@ -212,16 +212,17 @@ function EventMarketChannelProvider({
 }) {
   const queryClient = useQueryClient()
   const listenersRef = useRef(new Set<MarketChannelListener>())
-  const [status, setStatus] = useState<MarketChannelStatus>('connecting')
+  const [connectionStatus, setConnectionStatus] = useState<MarketChannelStatus>('connecting')
   const { tokenIds, tokenIdToConditionId } = useMemo(
     () => buildTokenMapping(markets),
     [markets],
   )
   const wsUrl = process.env.WS_CLOB_URL!
+  const hasMarketChannel = tokenIds.length > 0 && Boolean(wsUrl)
+  const status: MarketChannelStatus = hasMarketChannel ? connectionStatus : 'offline'
 
   useEffect(() => {
-    if (!tokenIds.length || !wsUrl) {
-      setStatus('offline')
+    if (!hasMarketChannel) {
       return
     }
 
@@ -232,7 +233,7 @@ function EventMarketChannelProvider({
       if (!ws) {
         return
       }
-      setStatus('connecting')
+      setConnectionStatus('connecting')
       ws.send(JSON.stringify({
         type: 'market',
         assets_ids: tokenIds,
@@ -245,7 +246,7 @@ function EventMarketChannelProvider({
       if (!isActive) {
         return
       }
-      setStatus('live')
+      setConnectionStatus('live')
       let payload: any
       try {
         payload = JSON.parse(eventMessage.data)
@@ -288,7 +289,7 @@ function EventMarketChannelProvider({
 
     function handleError() {
       if (isActive) {
-        setStatus('offline')
+        setConnectionStatus('offline')
       }
     }
 
@@ -308,7 +309,7 @@ function EventMarketChannelProvider({
 
     function handleClose() {
       if (isActive) {
-        setStatus('offline')
+        setConnectionStatus('offline')
         scheduleReconnect()
       }
     }
@@ -317,7 +318,7 @@ function EventMarketChannelProvider({
       if (!isActive || ws || document.hidden) {
         return
       }
-      setStatus('connecting')
+      setConnectionStatus('connecting')
       ws = new WebSocket(`${wsUrl}/ws/market`)
       ws.addEventListener('open', handleOpen)
       ws.addEventListener('message', handleMessage)
@@ -349,7 +350,7 @@ function EventMarketChannelProvider({
         ws.close()
       }
     }
-  }, [queryClient, tokenIds, tokenIdToConditionId, wsUrl])
+  }, [hasMarketChannel, queryClient, tokenIds, tokenIdToConditionId, wsUrl])
 
   const contextValue = useMemo(
     () => ({
