@@ -223,9 +223,7 @@ function EventMarketChannelProvider({
 
   useEffect(() => {
     if (!hasMarketChannel) {
-      setConnectionStatus('offline')
       return
-    }
     }
 
     let isActive = true
