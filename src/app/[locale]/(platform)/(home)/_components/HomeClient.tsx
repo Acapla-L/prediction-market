@@ -3,7 +3,7 @@
 import type { Route } from 'next'
 import type { FilterState } from '@/app/[locale]/(platform)/_providers/FilterProvider'
 import type { Event } from '@/types'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import CategorySidebar from '@/app/[locale]/(platform)/(home)/_components/CategorySidebar'
 import EventsGrid from '@/app/[locale]/(platform)/(home)/_components/EventsGrid'
 import FilterToolbar from '@/app/[locale]/(platform)/(home)/_components/FilterToolbar'
@@ -36,10 +36,7 @@ export default function HomeClient({
   initialMainTag,
 }: HomeClientProps) {
   const pathname = usePathname()
-  const router = useRouter()
-  const { updateFilters } = useFilters()
   const { tags, childParentMap } = usePlatformNavigationData()
-  const lastAppliedRouteFiltersRef = useRef<string | null>(null)
   const dynamicHomeCategorySlugSet = useMemo(() => buildDynamicHomeCategorySlugSet(tags), [tags])
   const serverTargetTag = initialTag ?? 'trending'
   const serverTargetMainTag = initialMainTag ?? serverTargetTag
@@ -72,29 +69,64 @@ export default function HomeClient({
   const targetTag = pathState.isHomeLikePage && !pathState.isSportsPathPage ? pathTargetTag : serverTargetTag
   const targetMainTag = pathState.isHomeLikePage && !pathState.isSportsPathPage ? pathTargetMainTag : serverTargetMainTag
   const targetFilterKey = `${targetMainTag}:${targetTag}`
+
+  return (
+    <HomeClientContent
+      key={targetFilterKey}
+      childParentMap={childParentMap}
+      dynamicHomeCategorySlugSet={dynamicHomeCategorySlugSet}
+      initialCurrentTimestamp={initialCurrentTimestamp}
+      initialEvents={initialEvents}
+      pathname={pathname}
+      pathState={pathState}
+      serverTargetMainTag={serverTargetMainTag}
+      serverTargetTag={serverTargetTag}
+      tags={tags}
+      targetMainTag={targetMainTag}
+      targetTag={targetTag}
+    />
+  )
+}
+
+interface HomeClientContentProps {
+  childParentMap: ReturnType<typeof usePlatformNavigationData>['childParentMap']
+  dynamicHomeCategorySlugSet: Set<string>
+  initialCurrentTimestamp: number | null
+  initialEvents: Event[]
+  pathname: ReturnType<typeof usePathname>
+  pathState: ReturnType<typeof parsePlatformPathname>
+  serverTargetMainTag: string
+  serverTargetTag: string
+  tags: ReturnType<typeof usePlatformNavigationData>['tags']
+  targetMainTag: string
+  targetTag: string
+}
+
+function HomeClientContent({
+  childParentMap,
+  dynamicHomeCategorySlugSet,
+  initialCurrentTimestamp,
+  initialEvents,
+  pathname,
+  pathState,
+  serverTargetMainTag,
+  serverTargetTag,
+  tags,
+  targetMainTag,
+  targetTag,
+}: HomeClientContentProps) {
+  const router = useRouter()
+  const { updateFilters } = useFilters()
   const [homeFilters, setHomeFilters] = useState<FilterState>(() => createHomeRouteFilters(targetTag, targetMainTag))
-  const hasPendingRouteFilterReset = lastAppliedRouteFiltersRef.current !== targetFilterKey
   const canUseServerInitialEvents = serverTargetTag === targetTag && serverTargetMainTag === targetMainTag
-  const effectiveFilters = hasPendingRouteFilterReset
-    ? createHomeRouteFilters(targetTag, targetMainTag)
-    : homeFilters
-
-  useEffect(() => {
-    if (lastAppliedRouteFiltersRef.current === targetFilterKey) {
-      return
-    }
-
-    lastAppliedRouteFiltersRef.current = targetFilterKey
-    setHomeFilters(createHomeRouteFilters(targetTag, targetMainTag))
-  }, [targetFilterKey, targetMainTag, targetTag])
 
   useEffect(() => {
     updateFilters({
-      tag: effectiveFilters.tag,
-      mainTag: effectiveFilters.mainTag,
-      bookmarked: effectiveFilters.bookmarked,
+      tag: homeFilters.tag,
+      mainTag: homeFilters.mainTag,
+      bookmarked: homeFilters.bookmarked,
     })
-  }, [effectiveFilters.bookmarked, effectiveFilters.mainTag, effectiveFilters.tag, updateFilters])
+  }, [homeFilters.bookmarked, homeFilters.mainTag, homeFilters.tag, updateFilters])
 
   const handleFiltersChange = useCallback((updates: Partial<FilterState>) => {
     setHomeFilters(prev => ({ ...prev, ...updates }))
@@ -108,12 +140,12 @@ export default function HomeClient({
     dynamicHomeCategorySlugSet,
     pathname,
     filters: {
-      tag: effectiveFilters.tag,
-      mainTag: effectiveFilters.mainTag,
-      bookmarked: effectiveFilters.bookmarked,
+      tag: homeFilters.tag,
+      mainTag: homeFilters.mainTag,
+      bookmarked: homeFilters.bookmarked,
     },
     childParentMap,
-  }), [childParentMap, dynamicHomeCategorySlugSet, effectiveFilters.bookmarked, effectiveFilters.mainTag, effectiveFilters.tag, pathname])
+  }), [childParentMap, dynamicHomeCategorySlugSet, homeFilters.bookmarked, homeFilters.mainTag, homeFilters.tag, pathname])
 
   const activeNavigationTag = useMemo(
     () => tags.find(tag => tag.slug === navigationSelection.activeMainTagSlug) ?? null,
@@ -212,7 +244,7 @@ export default function HomeClient({
 
         <div className="min-w-0 flex-1 space-y-4 lg:space-y-5">
           <FilterToolbar
-            filters={effectiveFilters}
+            filters={homeFilters}
             onFiltersChange={handleFiltersChange}
             hideDesktopSecondaryNavigation={hasCategorySidebar}
             desktopTitle={categorySidebar?.title}
@@ -221,7 +253,7 @@ export default function HomeClient({
           />
 
           <EventsGrid
-            filters={effectiveFilters}
+            filters={homeFilters}
             initialEvents={canUseServerInitialEvents ? initialEvents : []}
             initialCurrentTimestamp={initialCurrentTimestamp}
             onClearFilters={handleClearFilters}
