@@ -1,7 +1,7 @@
 'use client'
 
 import type { NormalizedBookLevel } from '@/lib/order-panel-utils'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import EventIconImage from '@/components/EventIconImage'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
@@ -11,6 +11,15 @@ import { ORDER_SIDE } from '@/lib/constants'
 import { formatCentsLabel, formatCurrency, formatSharesLabel } from '@/lib/formatters'
 import { calculateMarketFill } from '@/lib/order-panel-utils'
 import { cn } from '@/lib/utils'
+
+function resolveSelectedShares(totalShares: number, sellPercent: number) {
+  if (!(totalShares > 0) || sellPercent <= 0) {
+    return 0
+  }
+
+  const scaled = Number(((totalShares * sellPercent) / 100).toFixed(4))
+  return Number.isFinite(scaled) && scaled > 0 ? scaled : 0
+}
 
 interface SellPositionModalProps {
   open: boolean
@@ -49,29 +58,14 @@ export default function SellPositionModal({
   const isMobile = useIsMobile()
   const [sellPercent, setSellPercent] = useState(100)
 
-  useEffect(() => {
-    if (open) {
-      setSellPercent(100)
-    }
-  }, [open])
-
   const iconUrl = outcomeIconUrl || fallbackIconUrl || ''
   const safeShares = Number.isFinite(shares) ? shares : 0
   const safeFilledShares = Number.isFinite(filledShares) ? filledShares : null
-  const selectedShares = useMemo(() => {
-    if (!(safeShares > 0) || sellPercent <= 0) {
-      return 0
-    }
-    const scaled = Number(((safeShares * sellPercent) / 100).toFixed(4))
-    return Number.isFinite(scaled) && scaled > 0 ? scaled : 0
-  }, [safeShares, sellPercent])
-
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-    onSharesChange?.(selectedShares)
-  }, [onSharesChange, open, selectedShares])
+  const selectedShares = useMemo(() => resolveSelectedShares(safeShares, sellPercent), [safeShares, sellPercent])
+  const handleSellPercentChange = useCallback((nextSellPercent: number) => {
+    setSellPercent(nextSellPercent)
+    onSharesChange?.(resolveSelectedShares(safeShares, nextSellPercent))
+  }, [onSharesChange, safeShares])
 
   const sellPreview = useMemo(() => {
     if (!(selectedShares > 0)) {
@@ -202,7 +196,7 @@ export default function SellPositionModal({
               max={100}
               step={1}
               value={sellPercent}
-              onInput={event => setSellPercent(Number(event.currentTarget.value))}
+              onInput={event => handleSellPercentChange(Number(event.currentTarget.value))}
               aria-label="Sell percentage"
               className="absolute inset-0 size-full cursor-pointer opacity-0"
             />
