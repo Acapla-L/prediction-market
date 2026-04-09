@@ -1,5 +1,6 @@
 import antfu from '@antfu/eslint-config'
 import eslintPluginBetterTailwindcss from 'eslint-plugin-better-tailwindcss'
+import reactYouMightNotNeedAnEffect from 'eslint-plugin-react-you-might-not-need-an-effect'
 
 export default antfu({
   react: true,
@@ -8,8 +9,10 @@ export default antfu({
 }, {
   plugins: {
     'better-tailwindcss': eslintPluginBetterTailwindcss,
+    'react-you-might-not-need-an-effect': reactYouMightNotNeedAnEffect,
   },
   rules: {
+    ...reactYouMightNotNeedAnEffect.configs.recommended.rules,
     ...eslintPluginBetterTailwindcss.configs['recommended-error'].rules,
     'node/prefer-global/process': 'off',
     'no-console': 'off',

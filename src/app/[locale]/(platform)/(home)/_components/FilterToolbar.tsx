@@ -6,7 +6,7 @@ import type { FilterState } from '@/app/[locale]/(platform)/_providers/FilterPro
 import { useAppKitAccount } from '@reown/appkit/react'
 import { BookmarkIcon, ClockIcon, DropletIcon, FlameIcon, HandFistIcon, Settings2Icon, SparkleIcon, TrendingUpIcon } from 'lucide-react'
 import { useExtracted } from 'next-intl'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import FilterToolbarSearchInput from '@/app/[locale]/(platform)/(home)/_components/FilterToolbarSearchInput'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -85,13 +85,15 @@ export default function FilterToolbar({
   const { open } = useAppKit()
   const { isConnected } = useAppKitAccount()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [filterSettings, setFilterSettings] = useState<FilterSettings>(() => createDefaultFilters({
+  const [sortBy, setSortBy] = useState<SortOption>(BASE_FILTER_SETTINGS.sortBy)
+  const filterSettings = useMemo(() => createDefaultFilters({
+    sortBy,
     frequency: filters.frequency,
     status: filters.status,
     hideSports: filters.hideSports,
     hideCrypto: filters.hideCrypto,
     hideEarnings: filters.hideEarnings,
-  }))
+  }), [sortBy, filters.frequency, filters.status, filters.hideSports, filters.hideCrypto, filters.hideEarnings])
 
   const hasActiveFilters = useMemo(() => (
     filterSettings.sortBy !== BASE_FILTER_SETTINGS.sortBy
@@ -111,29 +113,6 @@ export default function FilterToolbar({
     || filterSettings.hideEarnings !== BASE_FILTER_SETTINGS.hideEarnings
   ), [filterSettings])
 
-  useEffect(() => {
-    setFilterSettings((prev) => {
-      if (
-        prev.frequency === filters.frequency
-        && prev.status === filters.status
-        && prev.hideSports === filters.hideSports
-        && prev.hideCrypto === filters.hideCrypto
-        && prev.hideEarnings === filters.hideEarnings
-      ) {
-        return prev
-      }
-
-      return {
-        ...prev,
-        frequency: filters.frequency,
-        status: filters.status,
-        hideSports: filters.hideSports,
-        hideCrypto: filters.hideCrypto,
-        hideEarnings: filters.hideEarnings,
-      }
-    })
-  }, [filters.frequency, filters.hideSports, filters.hideCrypto, filters.hideEarnings, filters.status])
-
   const handleBookmarkToggle = useCallback(() => {
     onFiltersChange({ bookmarked: !filters.bookmarked })
   }, [filters.bookmarked, onFiltersChange])
@@ -147,40 +126,36 @@ export default function FilterToolbar({
   }, [])
 
   const handleFilterChange = useCallback((updates: Partial<FilterSettings>) => {
-    setFilterSettings((prev) => {
-      const next = { ...prev, ...updates }
+    if ('sortBy' in updates && updates.sortBy && updates.sortBy !== sortBy) {
+      setSortBy(updates.sortBy)
+    }
 
-      const hideSportsChanged = 'hideSports' in updates && updates.hideSports !== undefined && updates.hideSports !== prev.hideSports
-      const hideCryptoChanged = 'hideCrypto' in updates && updates.hideCrypto !== undefined && updates.hideCrypto !== prev.hideCrypto
-      const hideEarningsChanged = 'hideEarnings' in updates && updates.hideEarnings !== undefined && updates.hideEarnings !== prev.hideEarnings
+    const filterUpdates: Partial<FilterState> = {}
 
-      if (hideSportsChanged || hideCryptoChanged || hideEarningsChanged) {
-        const filterUpdates: Partial<FilterState> = {}
-        if (hideSportsChanged) {
-          filterUpdates.hideSports = updates.hideSports
-        }
-        if (hideCryptoChanged) {
-          filterUpdates.hideCrypto = updates.hideCrypto
-        }
-        if (hideEarningsChanged) {
-          filterUpdates.hideEarnings = updates.hideEarnings
-        }
-        onFiltersChange(filterUpdates)
-      }
-      if ('frequency' in updates && updates.frequency !== undefined && updates.frequency !== prev.frequency) {
-        onFiltersChange({ frequency: updates.frequency })
-      }
-      if ('status' in updates && updates.status && updates.status !== prev.status) {
-        onFiltersChange({ status: updates.status })
-      }
+    if ('hideSports' in updates && updates.hideSports !== undefined && updates.hideSports !== filters.hideSports) {
+      filterUpdates.hideSports = updates.hideSports
+    }
+    if ('hideCrypto' in updates && updates.hideCrypto !== undefined && updates.hideCrypto !== filters.hideCrypto) {
+      filterUpdates.hideCrypto = updates.hideCrypto
+    }
+    if ('hideEarnings' in updates && updates.hideEarnings !== undefined && updates.hideEarnings !== filters.hideEarnings) {
+      filterUpdates.hideEarnings = updates.hideEarnings
+    }
+    if ('frequency' in updates && updates.frequency !== undefined && updates.frequency !== filters.frequency) {
+      filterUpdates.frequency = updates.frequency
+    }
+    if ('status' in updates && updates.status && updates.status !== filters.status) {
+      filterUpdates.status = updates.status
+    }
 
-      return next
-    })
-  }, [onFiltersChange])
+    if (Object.keys(filterUpdates).length > 0) {
+      onFiltersChange(filterUpdates)
+    }
+  }, [filters.frequency, filters.hideSports, filters.hideCrypto, filters.hideEarnings, filters.status, onFiltersChange, sortBy])
 
   const handleClearFilters = useCallback(() => {
     const defaultFilters = createDefaultFilters()
-    setFilterSettings(defaultFilters)
+    setSortBy(defaultFilters.sortBy)
 
     onFiltersChange({
       search: '',
