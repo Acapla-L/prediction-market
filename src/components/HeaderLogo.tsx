@@ -10,15 +10,16 @@ interface HeaderLogoProps {
 
 export default function HeaderLogo({ labelSuffix }: HeaderLogoProps) {
   const site = useSiteIdentity()
-  const label = labelSuffix ? `${site.name} ${labelSuffix}` : site.name
 
   return (
     <AppLink
       intentPrefetch
       href="/"
       className={`
-        flex h-10 shrink-0 items-center gap-2 text-2xl font-medium text-foreground transition-opacity
+        flex h-10 shrink-0 items-center gap-2 text-lg font-medium text-foreground transition-opacity
         hover:opacity-80
+        sm:text-xl
+        md:text-2xl
       `}
     >
       <SiteLogoIcon
@@ -29,7 +30,11 @@ export default function HeaderLogo({ labelSuffix }: HeaderLogoProps) {
         imageClassName="size-[1em] object-contain"
         size={32}
       />
-      <span>{label}</span>
+      <span className="font-logo tracking-tight uppercase">
+        <span className="font-bold">Wire</span>
+        <span className="font-light">Predictions</span>
+        {labelSuffix && <span className="ml-1 font-medium normal-case">{labelSuffix}</span>}
+      </span>
     </AppLink>
   )
 }

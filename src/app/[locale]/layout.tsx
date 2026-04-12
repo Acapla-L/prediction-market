@@ -14,7 +14,7 @@ import TestModeBannerDeferred from '@/components/TestModeBannerDeferred'
 import { loadEnabledLocales } from '@/i18n/locale-settings'
 import { routing } from '@/i18n/routing'
 import { cacheTags } from '@/lib/cache-tags'
-import { openSauceOne } from '@/lib/fonts'
+import { inter, raleway } from '@/lib/fonts'
 import { loadGlobalAnnouncementSettings } from '@/lib/global-announcement-settings'
 import { IS_TEST_MODE } from '@/lib/network'
 import { resolvePwaThemeColors } from '@/lib/pwa-colors'
@@ -115,7 +115,7 @@ export default async function LocaleLayout({ params, children }: LayoutProps<'/[
   return (
     <html
       lang={locale}
-      className={openSauceOne.variable}
+      className={`${inter.variable} ${raleway.variable}`}
       data-theme-preset={runtimeTheme.theme.presetId}
       suppressHydrationWarning
     >
