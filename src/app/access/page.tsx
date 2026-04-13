@@ -1,4 +1,7 @@
+'use cache'
+
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { AccessGateForm } from './_components/AccessGateForm'
 import { AccessGateLogo } from './_components/AccessGateLogo'
 
@@ -8,14 +11,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 }
 
-interface Props {
-  searchParams: Promise<{ next?: string }>
-}
-
-export default async function AccessPage({ searchParams }: Props) {
-  const params = await searchParams
-  const next = typeof params.next === 'string' ? params.next : '/'
-
+export default async function AccessPage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-background px-6 py-12">
       <div className="flex w-full max-w-md flex-col items-center gap-8">
@@ -28,7 +24,9 @@ export default async function AccessPage({ searchParams }: Props) {
               This platform is in private preview. Enter your access code to continue.
             </p>
           </div>
-          <AccessGateForm next={next} />
+          <Suspense fallback={null}>
+            <AccessGateForm />
+          </Suspense>
         </div>
 
         <p className="text-xs text-muted-foreground">Powered by WagerWire</p>

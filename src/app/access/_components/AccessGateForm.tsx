@@ -1,16 +1,15 @@
 'use client'
 
 import type { AccessFormState } from '../actions'
+import { useSearchParams } from 'next/navigation'
 import { useActionState } from 'react'
 import { submitAccessCode } from '../actions'
 
-interface Props {
-  next: string
-}
-
 const initialState: AccessFormState = {}
 
-export function AccessGateForm({ next }: Props) {
+export function AccessGateForm() {
+  const searchParams = useSearchParams()
+  const next = searchParams.get('next') ?? '/'
   const [state, formAction, pending] = useActionState(submitAccessCode, initialState)
 
   return (
