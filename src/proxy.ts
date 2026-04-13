@@ -2,6 +2,9 @@ import type { NextRequest } from 'next/server'
 import { isMarkdownPreferred, rewritePath } from 'fumadocs-core/negotiation'
 import createMiddleware from 'next-intl/middleware'
 import { NextResponse } from 'next/server'
+import { isAccessGateEnabled } from '@/lib/access-gate/codes'
+import { ACCESS_COOKIE_NAME } from '@/lib/access-gate/cookie'
+import { isValidAccessCookie } from '@/lib/access-gate/verify'
 import { auth } from '@/lib/auth'
 import {
   buildPredictionResultsInternalRoutePath,
@@ -93,6 +96,22 @@ function resolvePredictionResultsRewrite({
 
 export default async function proxy(request: NextRequest) {
   const url = new URL(request.url)
+
+  const isAccessGatePath = url.pathname === '/access' || url.pathname.startsWith('/access/')
+
+  if (isAccessGatePath) {
+    return NextResponse.next()
+  }
+
+  if (isAccessGateEnabled()) {
+    const cookie = request.cookies.get(ACCESS_COOKIE_NAME)?.value
+    if (!(await isValidAccessCookie(cookie))) {
+      const redirectUrl = new URL('/access', request.url)
+      redirectUrl.searchParams.set('next', url.pathname + url.search)
+      return NextResponse.redirect(redirectUrl)
+    }
+  }
+
   const markdownPath = rewriteMarkdownExtensionWithLocale(url.pathname) || rewriteMarkdownExtensionDefaultLocale(url.pathname)
 
   if (markdownPath) {
