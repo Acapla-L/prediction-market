@@ -10,6 +10,7 @@ import NavigationTabs from '@/app/[locale]/(platform)/_components/NavigationTabs
 import PlatformViewerState from '@/app/[locale]/(platform)/_components/PlatformViewerState'
 import { FilterProvider } from '@/app/[locale]/(platform)/_providers/FilterProvider'
 import PlatformNavigationProvider from '@/app/[locale]/(platform)/_providers/PlatformNavigationProvider'
+import Footer from '@/components/Footer'
 import { cacheTags } from '@/lib/cache-tags'
 import { TagRepository } from '@/lib/db/queries/tag'
 import { buildChildParentMap, buildPlatformNavigationTags } from '@/lib/platform-navigation'
@@ -38,6 +39,7 @@ export default async function PlatformLayout({ params, children }: LayoutProps<'
           <Header />
           <NavigationTabs />
           {children}
+          <Footer />
           <MobileBottomNav />
           <AffiliateQueryHandler />
         </PlatformNavigationProvider>

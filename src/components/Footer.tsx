@@ -1,5 +1,10 @@
+'use client'
+
 import type { ReactNode } from 'react'
-import { AlertTriangle, BadgeCheck, Heart, ShieldCheck, UserCheck } from 'lucide-react'
+import { AlertTriangle, BadgeCheck, Heart, Info, ShieldCheck, UserCheck } from 'lucide-react'
+import AppLink from '@/components/AppLink'
+import SiteLogoIcon from '@/components/SiteLogoIcon'
+import { useSiteIdentity } from '@/hooks/useSiteIdentity'
 
 const EXTERNAL_WAGERWIRE = 'https://www.wagerwire.com/'
 const EXTERNAL_WAGERWIRE_MARKETPLACE = 'https://www.wagerwire.com/for-sale'
@@ -494,6 +499,223 @@ export function FooterVariantC() {
             {' '}
             <a href={EXTERNAL_GAMBLING_THERAPY} target="_blank" rel="noopener noreferrer" className="hover:text-primary">
               GamblingTherapy.org
+            </a>
+          </p>
+        </div>
+      </div>
+    </footer>
+  )
+}
+
+/* ============================================================ */
+/* FINAL FOOTER — default export                                */
+/* ============================================================ */
+
+const SOCIAL_LINKEDIN = 'https://www.linkedin.com/company/wagerwire'
+const SOCIAL_X = 'https://x.com/wagerwire'
+const SOCIAL_INSTAGRAM = 'https://www.instagram.com/wagerwirelive'
+const SOCIAL_YOUTUBE = 'https://www.youtube.com/@WagerWire'
+
+const EXTERNAL_WAGERWIRE_NEWSROOM = 'https://www.wagerwire.com/community/newsroom'
+const EXTERNAL_WAGERWIRE_MAGAZINE = 'https://www.wagerwire.com/community/magazine'
+const EXTERNAL_WAGERWIRE_COMMUNITY = 'https://www.wagerwire.com/community'
+
+function FooterSocialLink({ href, name, label }: { href: string, name: SocialName, label: string }) {
+  return (
+    <a
+      href={href}
+      aria-label={label}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-muted-foreground transition-colors hover:text-primary"
+    >
+      <svg viewBox="0 0 24 24" fill="currentColor" className="size-5" aria-hidden="true">
+        <path d={SOCIAL_PATHS[name]} />
+      </svg>
+    </a>
+  )
+}
+
+const FOOTER_LINK_CLASS = 'text-sm text-foreground/80 transition-colors hover:text-primary'
+
+// All internal links use AppLink (next-intl locale-aware). Stub routes that don't
+// exist yet are cast via `as never` so Next typed routes accept them; clicking
+// them will hit a 404 until the target page is built — acceptable for demo state.
+function StubAppLink({ href, children }: { href: string, children: ReactNode }) {
+  return (
+    <AppLink href={href as never} className={FOOTER_LINK_CLASS}>
+      {children}
+    </AppLink>
+  )
+}
+export default function Footer() {
+  const site = useSiteIdentity()
+
+  return (
+    <footer className="hidden border-t border-border bg-background text-foreground lg:block">
+      <div className="mx-auto max-w-7xl px-6 py-16">
+        {/* ===== Section 1: Main Grid ===== */}
+        <div className="grid grid-cols-1 gap-12 lg:grid-cols-12">
+          {/* Brand block */}
+          <div className="lg:col-span-4">
+            <div className="flex items-center gap-2 text-2xl">
+              <SiteLogoIcon
+                logoSvg={site.logoSvg}
+                logoImageUrl={site.logoImageUrl}
+                alt={`${site.name} logo`}
+                className="size-[1em] text-current [&_svg]:size-[1em] [&_svg_*]:fill-current [&_svg_*]:stroke-current"
+                imageClassName="size-[1em] object-contain"
+                size={32}
+              />
+              <span className="font-logo tracking-tight uppercase">
+                <span className="font-bold">Wire</span>
+                <span className="font-light"> Predictions</span>
+              </span>
+            </div>
+            <p className="mt-4 max-w-sm text-sm/relaxed text-muted-foreground">
+              The prediction market platform by WagerWire. Trade on the outcomes of real-world events.
+            </p>
+            <div className="mt-6 flex items-center gap-5">
+              <FooterSocialLink href={SOCIAL_LINKEDIN} name="linkedin" label="LinkedIn" />
+              <FooterSocialLink href={SOCIAL_X} name="x" label="X" />
+              <FooterSocialLink href={SOCIAL_INSTAGRAM} name="instagram" label="Instagram" />
+              <FooterSocialLink href={SOCIAL_YOUTUBE} name="youtube" label="YouTube" />
+            </div>
+          </div>
+
+          {/* Link columns */}
+          <div className="grid grid-cols-2 gap-10 md:grid-cols-4 lg:col-span-8">
+            {/* Markets */}
+            <div>
+              <ColumnHeading>Markets</ColumnHeading>
+              <ul className="space-y-3">
+                <li><AppLink href="/" className={FOOTER_LINK_CLASS}>All Markets</AppLink></li>
+                <li><AppLink href="/sports" className={FOOTER_LINK_CLASS}>Sports</AppLink></li>
+                <li><AppLink href="/leaderboard" className={FOOTER_LINK_CLASS}>Leaderboard</AppLink></li>
+                <li><AppLink href="/new" className={FOOTER_LINK_CLASS}>New Listings</AppLink></li>
+                <li>
+                  <a href={EXTERNAL_WAGERWIRE_MARKETPLACE} target="_blank" rel="noopener noreferrer" className={FOOTER_LINK_CLASS}>
+                    Bet Slips
+                  </a>
+                </li>
+              </ul>
+            </div>
+
+            {/* Company */}
+            <div>
+              <ColumnHeading>Company</ColumnHeading>
+              <ul className="space-y-3">
+                <li><StubAppLink href="/about">About</StubAppLink></li>
+                <li>
+                  <a href={EXTERNAL_WAGERWIRE_NEWSROOM} target="_blank" rel="noopener noreferrer" className={FOOTER_LINK_CLASS}>
+                    Press
+                  </a>
+                </li>
+                <li>
+                  <a href={EXTERNAL_WAGERWIRE_MAGAZINE} target="_blank" rel="noopener noreferrer" className={FOOTER_LINK_CLASS}>
+                    Email Magazine
+                  </a>
+                </li>
+                <li>
+                  <a href={EXTERNAL_WAGERWIRE_COMMUNITY} target="_blank" rel="noopener noreferrer" className={FOOTER_LINK_CLASS}>
+                    Community Media
+                  </a>
+                </li>
+                <li>
+                  <a href={EXTERNAL_WAGERWIRE} target="_blank" rel="noopener noreferrer" className={FOOTER_LINK_CLASS}>
+                    WagerWire
+                  </a>
+                </li>
+              </ul>
+            </div>
+
+            {/* Resources */}
+            <div>
+              <ColumnHeading>Resources</ColumnHeading>
+              <ul className="space-y-3">
+                <li><AppLink href="/docs/users" className={FOOTER_LINK_CLASS}>Docs</AppLink></li>
+                <li><AppLink href="/docs/api-reference" className={FOOTER_LINK_CLASS}>APIs</AppLink></li>
+                <li><AppLink href="/docs/users/my-account/affiliate-program" className={FOOTER_LINK_CLASS}>Affiliate Program</AppLink></li>
+                <li><AppLink href="/docs/users/help-support/contact-support" className={FOOTER_LINK_CLASS}>Help Center</AppLink></li>
+                <li><StubAppLink href="/responsible-gambling">Responsible Trading</StubAppLink></li>
+              </ul>
+            </div>
+
+            {/* Regulatory */}
+            <div>
+              <ColumnHeading>Regulatory</ColumnHeading>
+              <ul className="space-y-3">
+                <li><StubAppLink href="/terms">Terms of Service</StubAppLink></li>
+                <li><StubAppLink href="/privacy">Privacy Policy</StubAppLink></li>
+                <li><StubAppLink href="/market-integrity">Market Integrity</StubAppLink></li>
+                <li><StubAppLink href="/restricted-jurisdictions">Restricted Jurisdictions</StubAppLink></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {/* ===== Section 2: Credential Cards ===== */}
+        <div className="mt-14 grid grid-cols-1 gap-3 border-t border-border pt-10 md:grid-cols-2 lg:grid-cols-4">
+          <div className="flex items-center gap-3 rounded-md border border-border bg-card px-4 py-3">
+            <Info className="size-6 shrink-0 text-muted-foreground" />
+            <div>
+              <p className="text-xs font-semibold text-foreground">Platform Demo</p>
+              <p className="text-xs text-muted-foreground">For regulatory review</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-md border border-border bg-card px-4 py-3">
+            <BadgeCheck className="size-6 shrink-0 text-primary" />
+            <div>
+              <p className="text-xs font-semibold text-foreground">GLI-33 Certified</p>
+              <p className="text-xs text-muted-foreground">Gaming Labs International</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-md border border-border bg-card px-4 py-3">
+            <UserCheck className="size-6 shrink-0 text-primary" />
+            <div>
+              <p className="text-xs font-semibold text-foreground">18+ Verified</p>
+              <p className="text-xs text-muted-foreground">Age-Gated Access</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-md border border-border bg-card px-4 py-3">
+            <Heart className="size-6 shrink-0 text-primary" />
+            <div>
+              <p className="text-xs font-semibold text-foreground">Responsible Gambling</p>
+              <p className="text-xs text-muted-foreground">Birches Health · GamCare</p>
+            </div>
+          </div>
+        </div>
+
+        {/* ===== Section 3: Risk Disclaimer ===== */}
+        <div className="mt-10 border-t border-border pt-10">
+          <p className="mx-auto max-w-4xl text-center text-xs/relaxed text-muted-foreground">
+            Trading on Wire Predictions involves risk and may not be appropriate for all. Members risk losing
+            their cost to enter any transaction, including fees. You should carefully consider whether trading on
+            Wire Predictions is appropriate for you in light of your investment experience and financial resources.
+            Any trading decisions you make are solely your responsibility and at your own risk. Information is
+            provided for convenience only on an &quot;AS IS&quot; basis. Past performance is not necessarily
+            indicative of future results.
+          </p>
+        </div>
+
+        {/* ===== Section 4: Copyright Bar ===== */}
+        <div className="
+          mt-10 flex flex-col items-start justify-between gap-3 border-t border-border pt-6 text-xs
+          text-muted-foreground
+          sm:flex-row sm:items-center
+        "
+        >
+          <p>© 2026 Wire Industries, Inc. All rights reserved.</p>
+          <p>
+            Powered by
+            {' '}
+            <a
+              href={EXTERNAL_WAGERWIRE}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-foreground transition-colors hover:text-primary"
+            >
+              WagerWire
             </a>
           </p>
         </div>
