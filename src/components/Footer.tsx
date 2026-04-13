@@ -552,7 +552,7 @@ export default function Footer() {
   const site = useSiteIdentity()
 
   return (
-    <footer className="hidden border-t border-border bg-background text-foreground lg:block">
+    <footer className="mt-16 hidden border-t border-border bg-background text-foreground lg:mt-20 lg:block">
       <div className="mx-auto max-w-7xl px-6 py-16">
         {/* ===== Section 1: Main Grid ===== */}
         <div className="grid grid-cols-1 gap-12 lg:grid-cols-12">
@@ -657,7 +657,7 @@ export default function Footer() {
         {/* ===== Section 2: Credential Cards ===== */}
         <div className="mt-14 grid grid-cols-1 gap-3 border-t border-border pt-10 md:grid-cols-2 lg:grid-cols-4">
           <div className="flex items-center gap-3 rounded-md border border-border bg-card px-4 py-3">
-            <Info className="size-6 shrink-0 text-muted-foreground" />
+            <Info className="size-6 shrink-0 text-primary" />
             <div>
               <p className="text-xs font-semibold text-foreground">Platform Demo</p>
               <p className="text-xs text-muted-foreground">For regulatory review</p>
@@ -688,7 +688,7 @@ export default function Footer() {
 
         {/* ===== Section 3: Risk Disclaimer ===== */}
         <div className="mt-10 border-t border-border pt-10">
-          <p className="mx-auto max-w-4xl text-center text-xs/relaxed text-muted-foreground">
+          <p className="text-xs/relaxed text-muted-foreground">
             Trading on Wire Predictions involves risk and may not be appropriate for all. Members risk losing
             their cost to enter any transaction, including fees. You should carefully consider whether trading on
             Wire Predictions is appropriate for you in light of your investment experience and financial resources.
