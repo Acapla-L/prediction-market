@@ -1,8 +1,11 @@
 'use client'
 
 import type { AccessFormState } from '../actions'
+import { REGEXP_ONLY_DIGITS_AND_CHARS } from 'input-otp'
 import { useSearchParams } from 'next/navigation'
-import { useActionState } from 'react'
+import { useActionState, useState } from 'react'
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp'
+import { ACCESS_CODE_LENGTH } from '../_config'
 import { submitAccessCode } from '../actions'
 
 const initialState: AccessFormState = {}
@@ -10,49 +13,67 @@ const initialState: AccessFormState = {}
 export function AccessGateForm() {
   const searchParams = useSearchParams()
   const next = searchParams.get('next') ?? '/'
+  const [value, setValue] = useState('')
   const [state, formAction, pending] = useActionState(submitAccessCode, initialState)
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    <form action={formAction} className="flex flex-col items-center gap-6">
       <input type="hidden" name="next" value={next} />
+      <input type="hidden" name="code" value={value} />
       <label className="sr-only" htmlFor="access-code">
-        Access code
+        Invitation code
       </label>
-      <input
+      <InputOTP
         id="access-code"
-        name="code"
-        type="text"
-        inputMode="text"
-        autoComplete="off"
-        autoCapitalize="characters"
-        autoCorrect="off"
-        spellCheck={false}
+        maxLength={ACCESS_CODE_LENGTH}
+        value={value}
+        onChange={nextValue => setValue(nextValue.toUpperCase())}
+        pattern={REGEXP_ONLY_DIGITS_AND_CHARS}
         autoFocus
-        maxLength={16}
-        placeholder="ACCESS CODE"
-        className="
-          h-14 w-full rounded-md border border-input bg-input/50 px-4 text-center font-mono text-2xl tracking-[0.4em]
-          text-foreground uppercase
-          placeholder:text-muted-foreground/50
-          focus:border-primary focus:ring-2 focus:ring-primary/40 focus:outline-none
-        "
-      />
+        containerClassName="gap-2 sm:gap-3"
+        aria-invalid={state.error ? true : undefined}
+      >
+        <InputOTPGroup className="gap-2 sm:gap-3">
+          {Array.from({ length: ACCESS_CODE_LENGTH }).map((_, index) => (
+            <InputOTPSlot
+              key={index}
+              index={index}
+              className={`
+                size-12 rounded-lg border border-border bg-background/60 font-mono text-xl font-semibold text-foreground
+                uppercase shadow-inner transition [-webkit-text-security:disc] [text-security:disc]
+                first:rounded-l-lg
+                last:rounded-r-lg
+                focus-visible:outline-none
+                aria-invalid:border-destructive
+                data-[active=true]:border-primary data-[active=true]:ring-2 data-[active=true]:ring-primary/40
+                sm:size-14 sm:text-2xl
+              `}
+            />
+          ))}
+        </InputOTPGroup>
+      </InputOTP>
+
       <button
         type="submit"
-        disabled={pending}
-        className="
-          h-12 w-full rounded-md bg-primary font-semibold text-primary-foreground transition
-          hover:opacity-90
-          disabled:cursor-not-allowed disabled:opacity-60
-        "
+        disabled={pending || value.length < ACCESS_CODE_LENGTH}
+        className={`
+          h-12 w-full rounded-lg bg-primary font-semibold tracking-wide text-primary-foreground transition
+          hover:bg-primary/90
+          focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2
+          focus-visible:ring-offset-background focus-visible:outline-none
+          disabled:cursor-not-allowed disabled:opacity-50
+        `}
       >
         {pending ? 'Verifying…' : 'Enter platform'}
       </button>
-      {state.error && (
-        <p role="alert" className="text-center text-sm text-destructive">
-          {state.error}
-        </p>
-      )}
+
+      <p
+        role="alert"
+        aria-live="polite"
+        className="min-h-5 text-center text-sm text-destructive"
+      >
+        {state.error ?? ''}
+      </p>
     </form>
   )
 }
