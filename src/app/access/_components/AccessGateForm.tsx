@@ -1,9 +1,10 @@
 'use client'
 
+import type { Route } from 'next'
 import type { AccessFormState } from '../actions'
 import { REGEXP_ONLY_DIGITS_AND_CHARS } from 'input-otp'
-import { useSearchParams } from 'next/navigation'
-import { useActionState, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useActionState, useEffect, useState, useTransition } from 'react'
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp'
 import { ACCESS_CODE_LENGTH } from '../_config'
 import { submitAccessCode } from '../actions'
@@ -13,8 +14,20 @@ const initialState: AccessFormState = {}
 export function AccessGateForm() {
   const searchParams = useSearchParams()
   const next = searchParams.get('next') ?? '/'
+  const router = useRouter()
   const [value, setValue] = useState('')
   const [state, formAction, pending] = useActionState(submitAccessCode, initialState)
+  const [isNavigating, startNavigation] = useTransition()
+
+  useEffect(() => {
+    if (state.ok && state.next) {
+      startNavigation(() => {
+        router.push(state.next as Route)
+      })
+    }
+  }, [state, router])
+
+  const busy = pending || isNavigating || state.ok === true
 
   return (
     <form action={formAction} className="flex flex-col items-center gap-6">
@@ -29,6 +42,7 @@ export function AccessGateForm() {
         value={value}
         onChange={nextValue => setValue(nextValue.toUpperCase())}
         pattern={REGEXP_ONLY_DIGITS_AND_CHARS}
+        inputMode="text"
         autoFocus
         containerClassName="gap-2 sm:gap-3"
         aria-invalid={state.error ? true : undefined}
@@ -55,7 +69,7 @@ export function AccessGateForm() {
 
       <button
         type="submit"
-        disabled={pending || value.length < ACCESS_CODE_LENGTH}
+        disabled={busy || value.length < ACCESS_CODE_LENGTH}
         className={`
           h-12 w-full rounded-lg bg-primary font-semibold tracking-wide text-primary-foreground transition
           hover:bg-primary/90
@@ -64,7 +78,7 @@ export function AccessGateForm() {
           disabled:cursor-not-allowed disabled:opacity-50
         `}
       >
-        {pending ? 'Verifying…' : 'Enter platform'}
+        {busy ? 'Verifying…' : 'Enter platform'}
       </button>
 
       <p

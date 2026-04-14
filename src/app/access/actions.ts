@@ -1,12 +1,12 @@
 'use server'
 
-import type { Route } from 'next'
 import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
 import { ACCESS_COOKIE_MAX_AGE, ACCESS_COOKIE_NAME } from '@/lib/access-gate/cookie'
 import { verifyAccessCodeInput } from '@/lib/access-gate/verify'
 
 export interface AccessFormState {
+  ok?: boolean
+  next?: string
   error?: string
 }
 
@@ -38,7 +38,7 @@ export async function submitAccessCode(
     maxAge: ACCESS_COOKIE_MAX_AGE,
   })
 
-  redirect(next as Route)
+  return { ok: true, next }
 }
 
 function safeNextPath(value: string): string {

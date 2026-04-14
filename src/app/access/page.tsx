@@ -25,12 +25,12 @@ export default async function AccessPage() {
     >
       <div
         aria-hidden
-        className="pointer-events-none absolute -top-40 -left-40 size-[520px] rounded-full bg-primary/15 blur-[140px]"
+        className="pointer-events-none absolute -top-40 -left-40 size-[520px] rounded-full bg-[#0891B2]/5 blur-[140px]"
       />
       <div
         aria-hidden
         className="
-          pointer-events-none absolute -right-40 -bottom-40 size-[520px] rounded-full bg-primary/10 blur-[160px]
+          pointer-events-none absolute -right-40 -bottom-40 size-[520px] rounded-full bg-[#0891B2]/3 blur-[160px]
         "
       />
       <div
@@ -60,7 +60,7 @@ export default async function AccessPage() {
         <div
           className={`
             w-full rounded-2xl border border-border/80 bg-card/70 p-8
-            shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_40px_80px_-20px_rgba(0,0,0,0.6),0_0_60px_-20px_var(--color-primary,rgba(0,255,178,0.25))]
+            shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_40px_80px_-20px_rgba(0,0,0,0.6),0_0_60px_-20px_rgba(8,145,178,0.12)]
             backdrop-blur-xl
             sm:p-10
           `}
