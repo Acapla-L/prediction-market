@@ -219,6 +219,51 @@ function getNavigatorLanguage() {
   return navigator.language
 }
 
+function useNavigatorLocale() {
+  return useSyncExternalStore(
+    subscribeToNavigatorLanguage,
+    getNavigatorLanguage,
+    () => fallbackLocale,
+  )
+}
+
+function useExportFormState({
+  eventStartDate,
+  openedAt,
+}: {
+  eventStartDate: Date
+  openedAt: Date
+}) {
+  const [frequency, setFrequency] = useState<Frequency>(defaultFrequency)
+  const [fromDate, setFromDate] = useState<Date>(() => getDefaultFromDate(
+    defaultFrequency,
+    eventStartDate,
+    openedAt,
+  ))
+  const [calendarOpen, setCalendarOpen] = useState(false)
+  const [selectedOptions, setSelectedOptions] = useState<string[]>([])
+  const [isDownloading, setIsDownloading] = useState(false)
+
+  function handleFrequencyChange(value: string) {
+    const nextFrequency = value as Frequency
+    setFrequency(nextFrequency)
+    setFromDate(getDefaultFromDate(nextFrequency, eventStartDate, openedAt))
+  }
+
+  return {
+    frequency,
+    fromDate,
+    setFromDate,
+    calendarOpen,
+    setCalendarOpen,
+    selectedOptions,
+    setSelectedOptions,
+    isDownloading,
+    setIsDownloading,
+    handleFrequencyChange,
+  }
+}
+
 interface EventChartExportDialogBodyProps {
   eventCreatedAt: string
   markets: Market[]
@@ -237,27 +282,20 @@ function EventChartExportDialogBody({
   const optionsListId = useId()
   const eventStartDate = useMemo(() => new Date(eventCreatedAt), [eventCreatedAt])
   const openedAt = useMemo(() => new Date(Date.now()), [])
-  const [frequency, setFrequency] = useState<Frequency>(defaultFrequency)
-  const [fromDate, setFromDate] = useState<Date>(() => getDefaultFromDate(
-    defaultFrequency,
-    eventStartDate,
-    openedAt,
-  ))
-  const [calendarOpen, setCalendarOpen] = useState(false)
-  const [selectedOptions, setSelectedOptions] = useState<string[]>([])
-  const [isDownloading, setIsDownloading] = useState(false)
-  const locale = useSyncExternalStore(
-    subscribeToNavigatorLanguage,
-    getNavigatorLanguage,
-    () => fallbackLocale,
-  )
+  const {
+    frequency,
+    fromDate,
+    setFromDate,
+    calendarOpen,
+    setCalendarOpen,
+    selectedOptions,
+    setSelectedOptions,
+    isDownloading,
+    setIsDownloading,
+    handleFrequencyChange,
+  } = useExportFormState({ eventStartDate, openedAt })
+  const locale = useNavigatorLocale()
   const toDate = openedAt
-
-  function handleFrequencyChange(value: string) {
-    const nextFrequency = value as Frequency
-    setFrequency(nextFrequency)
-    setFromDate(getDefaultFromDate(nextFrequency, eventStartDate, toDate))
-  }
 
   const optionItems = useMemo(
     () => markets.map(market => ({

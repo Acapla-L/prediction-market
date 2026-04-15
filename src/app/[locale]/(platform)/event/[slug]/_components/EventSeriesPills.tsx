@@ -179,6 +179,56 @@ function isSeriesEventTradingNow(event: EventSeriesEntry, nowTimestamp: number) 
   return nowTimestamp >= tradingWindowStart && nowTimestamp < eventTimestamp
 }
 
+function useNowTimestamp() {
+  return useSyncExternalStore(
+    subscribeToNowTimestamp,
+    getNowTimestampSnapshot,
+    getServerNowTimestampSnapshot,
+  )
+}
+
+function useSeriesNavigation({
+  currentEventSlug,
+  seriesEvents,
+  nowTimestamp,
+}: {
+  currentEventSlug: string | undefined
+  seriesEvents: EventSeriesEntry[]
+  nowTimestamp: number
+}) {
+  return useMemo(() => {
+    const filteredSeriesEvents = seriesEvents.filter(event => Boolean(event?.slug))
+    const hasComparableSeriesEvents = filteredSeriesEvents.some(event => event.slug !== currentEventSlug)
+    const currentEvent = filteredSeriesEvents.find(event => event.slug === currentEventSlug) ?? null
+
+    const past = filteredSeriesEvents
+      .filter(event => isSeriesEventResolved(event))
+      .sort((a, b) => getSeriesEventTimestamp(b) - getSeriesEventTimestamp(a))
+
+    const unresolved = filteredSeriesEvents
+      .filter(event => !isSeriesEventResolved(event))
+      .sort((a, b) => getSeriesEventTimestamp(a) - getSeriesEventTimestamp(b))
+
+    const currentTradingEvent = unresolved.find(event => isSeriesEventTradingNow(event, nowTimestamp))
+      ?? unresolved.find((event) => {
+        const eventTimestamp = getSeriesEventTimestamp(event)
+        return Number.isFinite(eventTimestamp) && eventTimestamp > nowTimestamp
+      })
+      ?? (currentEvent && !isSeriesEventResolved(currentEvent) ? currentEvent : null)
+    const hasUnresolvedCurrentEvent = Boolean(currentEvent && !isSeriesEventResolved(currentEvent))
+
+    return {
+      pastResolvedEvents: past,
+      unresolvedEvents: unresolved,
+      currentResolvedEvent: currentEvent && isSeriesEventResolved(currentEvent) ? currentEvent : null,
+      currentTradingEventId: currentTradingEvent?.id ?? null,
+      hasSeriesNavigation:
+        (hasComparableSeriesEvents && (past.length > 0 || unresolved.length > 0))
+        || hasUnresolvedCurrentEvent,
+    }
+  }, [currentEventSlug, nowTimestamp, seriesEvents])
+}
+
 function isSameEtDay(leftTimestamp: number, rightTimestamp: number) {
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/New_York',
@@ -294,11 +344,7 @@ export default function EventSeriesPills({
 }: EventSeriesPillsProps) {
   const [isPastMenuOpen, setIsPastMenuOpen] = useState(false)
   const [hoveredPastBadgeId, setHoveredPastBadgeId] = useState<string | null>(null)
-  const nowTimestamp = useSyncExternalStore(
-    subscribeToNowTimestamp,
-    getNowTimestampSnapshot,
-    getServerNowTimestampSnapshot,
-  )
+  const nowTimestamp = useNowTimestamp()
 
   const {
     pastResolvedEvents,
@@ -306,37 +352,7 @@ export default function EventSeriesPills({
     currentResolvedEvent,
     currentTradingEventId,
     hasSeriesNavigation,
-  } = useMemo(() => {
-    const filteredSeriesEvents = seriesEvents.filter(event => Boolean(event?.slug))
-    const hasComparableSeriesEvents = filteredSeriesEvents.some(event => event.slug !== currentEventSlug)
-    const currentEvent = filteredSeriesEvents.find(event => event.slug === currentEventSlug) ?? null
-
-    const past = filteredSeriesEvents
-      .filter(event => isSeriesEventResolved(event))
-      .sort((a, b) => getSeriesEventTimestamp(b) - getSeriesEventTimestamp(a))
-
-    const unresolved = filteredSeriesEvents
-      .filter(event => !isSeriesEventResolved(event))
-      .sort((a, b) => getSeriesEventTimestamp(a) - getSeriesEventTimestamp(b))
-
-    const currentTradingEvent = unresolved.find(event => isSeriesEventTradingNow(event, nowTimestamp))
-      ?? unresolved.find((event) => {
-        const eventTimestamp = getSeriesEventTimestamp(event)
-        return Number.isFinite(eventTimestamp) && eventTimestamp > nowTimestamp
-      })
-      ?? (currentEvent && !isSeriesEventResolved(currentEvent) ? currentEvent : null)
-    const hasUnresolvedCurrentEvent = Boolean(currentEvent && !isSeriesEventResolved(currentEvent))
-
-    return {
-      pastResolvedEvents: past,
-      unresolvedEvents: unresolved,
-      currentResolvedEvent: currentEvent && isSeriesEventResolved(currentEvent) ? currentEvent : null,
-      currentTradingEventId: currentTradingEvent?.id ?? null,
-      hasSeriesNavigation:
-        (hasComparableSeriesEvents && (past.length > 0 || unresolved.length > 0))
-        || hasUnresolvedCurrentEvent,
-    }
-  }, [currentEventSlug, nowTimestamp, seriesEvents])
+  } = useSeriesNavigation({ currentEventSlug, seriesEvents, nowTimestamp })
 
   if (!hasSeriesNavigation && !rightSlot) {
     return null

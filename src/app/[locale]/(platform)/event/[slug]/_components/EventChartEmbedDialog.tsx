@@ -89,53 +89,10 @@ function buildEditorKey(markets: Market[], initialMarketId?: string | null) {
   return `${initialMarketId ?? ''}:${markets.map(market => market.condition_id).join('|')}`
 }
 
-function createInitialEditorState(markets: Market[], initialMarketId?: string | null): EditorState {
-  return {
-    copied: false,
-    embedType: 'iframe',
-    selectedMarketId: getDefaultSelectedMarketId(markets, initialMarketId),
-    showChart: false,
-    showTimeRange: false,
-    showVolume: false,
-    theme: 'light',
-  }
-}
-
-function EventChartEmbedDialogEditor({
-  markets,
-  initialMarketId,
-}: Pick<EventChartEmbedDialogProps, 'markets' | 'initialMarketId'>) {
-  const t = useExtracted()
-  const site = useSiteIdentity()
-  const user = useUser()
-  const [editorState, setEditorState] = useState(() => createInitialEditorState(markets, initialMarketId))
+function useAffiliateSettings(affiliateCode: string) {
   const [affiliateSettings, setAffiliateSettings] = useState(EMPTY_AFFILIATE_SETTINGS)
-  const affiliateCode = user?.affiliate_code?.trim() ?? ''
-  const {
-    copied,
-    embedType,
-    selectedMarketId,
-    showChart,
-    showTimeRange,
-    showVolume,
-    theme,
-  } = editorState
-  const showMarketSelector = markets.length > 1
-  const showTimeRangeSelector = showChart
-  const effectiveShowTimeRange = showChart && showTimeRange
-  const siteSlug = useMemo(() => {
-    try {
-      return slugifySiteName(site.name)
-    }
-    catch {
-      return 'market'
-    }
-  }, [site.name])
-  const embedBaseUrl = SITE_URL
-  const embedElementName = `${siteSlug}-market-embed`
-  const embedIframeTitle = `${siteSlug}-market-iframe`
 
-  useEffect(() => {
+  useEffect(function fetchAffiliateSettingsOnCodeChange() {
     if (!affiliateCode) {
       return
     }
@@ -167,55 +124,80 @@ function EventChartEmbedDialogEditor({
         }
       })
 
-    return () => {
+    return function cancelAffiliateSettingsFetch() {
       isActive = false
     }
   }, [affiliateCode])
 
-  const affiliateSharePercent = affiliateCode ? affiliateSettings.affiliateSharePercent : null
-  const tradeFeePercent = affiliateCode ? affiliateSettings.tradeFeePercent : null
-  const marketOptions = useMemo(
-    () => markets.map(market => ({
-      id: market.condition_id,
-      label: buildMarketLabel(market),
-    })),
-    [markets],
-  )
-  const selectedMarket = markets.find(market => market.condition_id === selectedMarketId) ?? markets[0]
-  const marketSlug = selectedMarket?.slug ?? ''
-  const features = useMemo(
-    () => buildFeatureList(showVolume, showChart, effectiveShowTimeRange),
-    [showVolume, showChart, effectiveShowTimeRange],
-  )
-  const iframeSrc = useMemo(
-    () => buildIframeSrc(embedBaseUrl, marketSlug, theme, features, affiliateCode),
-    [embedBaseUrl, marketSlug, theme, features, affiliateCode],
-  )
-  const previewSrc = useMemo(
-    () => buildPreviewSrc(marketSlug, theme, features, affiliateCode),
-    [marketSlug, theme, features, affiliateCode],
-  )
-  const iframeHeight = showChart
-    ? (effectiveShowTimeRange ? IFRAME_HEIGHT_WITH_FILTERS : IFRAME_HEIGHT_WITH_CHART)
-    : IFRAME_HEIGHT_NO_CHART
-  const iframeCode = useMemo(
-    () => buildIframeCode(iframeSrc, iframeHeight, embedIframeTitle),
-    [embedIframeTitle, iframeSrc, iframeHeight],
-  )
-  const webComponentCode = useMemo(
-    () => buildWebComponentCode(embedElementName, marketSlug, theme, showVolume, showChart, effectiveShowTimeRange, affiliateCode),
-    [embedElementName, marketSlug, theme, showVolume, showChart, effectiveShowTimeRange, affiliateCode],
-  )
-  const activeCode = embedType === 'iframe' ? iframeCode : webComponentCode
-  const iframeLines = useMemo<EmbedCodeLine[]>(() => ([
-    tagOpenLine('', 'iframe'),
-    attributeLine('\t', 'title', embedIframeTitle),
-    attributeLine('\t', 'src', iframeSrc),
-    attributeLine('\t', 'width', '400'),
-    attributeLine('\t', 'height', String(iframeHeight)),
-    attributeLine('\t', 'frameBorder', '0'),
-    tagSelfCloseLine(''),
-  ]), [embedIframeTitle, iframeSrc, iframeHeight])
+  return {
+    affiliateSharePercent: affiliateCode ? affiliateSettings.affiliateSharePercent : null,
+    tradeFeePercent: affiliateCode ? affiliateSettings.tradeFeePercent : null,
+  }
+}
+
+function useEmbedCodeBuilders({
+  embedBaseUrl,
+  embedElementName,
+  embedIframeTitle,
+  marketSlug,
+  theme,
+  showVolume,
+  showChart,
+  effectiveShowTimeRange,
+  affiliateCode,
+  iframeHeight,
+}: {
+  embedBaseUrl: string
+  embedElementName: string
+  embedIframeTitle: string
+  marketSlug: string
+  theme: EmbedTheme
+  showVolume: boolean
+  showChart: boolean
+  effectiveShowTimeRange: boolean
+  affiliateCode: string
+  iframeHeight: number
+}) {
+  const features = useMemo(() => {
+    return buildFeatureList(showVolume, showChart, effectiveShowTimeRange)
+  }, [showVolume, showChart, effectiveShowTimeRange])
+
+  const iframeSrc = useMemo(() => {
+    return buildIframeSrc(embedBaseUrl, marketSlug, theme, features, affiliateCode)
+  }, [embedBaseUrl, marketSlug, theme, features, affiliateCode])
+
+  const previewSrc = useMemo(() => {
+    return buildPreviewSrc(marketSlug, theme, features, affiliateCode)
+  }, [marketSlug, theme, features, affiliateCode])
+
+  const iframeCode = useMemo(() => {
+    return buildIframeCode(iframeSrc, iframeHeight, embedIframeTitle)
+  }, [embedIframeTitle, iframeSrc, iframeHeight])
+
+  const webComponentCode = useMemo(() => {
+    return buildWebComponentCode(
+      embedElementName,
+      marketSlug,
+      theme,
+      showVolume,
+      showChart,
+      effectiveShowTimeRange,
+      affiliateCode,
+    )
+  }, [embedElementName, marketSlug, theme, showVolume, showChart, effectiveShowTimeRange, affiliateCode])
+
+  const iframeLines = useMemo<EmbedCodeLine[]>(() => {
+    return [
+      tagOpenLine('', 'iframe'),
+      attributeLine('\t', 'title', embedIframeTitle),
+      attributeLine('\t', 'src', iframeSrc),
+      attributeLine('\t', 'width', '400'),
+      attributeLine('\t', 'height', String(iframeHeight)),
+      attributeLine('\t', 'frameBorder', '0'),
+      tagSelfCloseLine(''),
+    ]
+  }, [embedIframeTitle, iframeSrc, iframeHeight])
+
   const webComponentLines = useMemo<EmbedCodeLine[]>(() => {
     const lines: EmbedCodeLine[] = [
       tagWithAttributeLine('', 'div', 'id', embedElementName, '>'),
@@ -247,6 +229,81 @@ function EventChartEmbedDialogEditor({
 
     return lines
   }, [affiliateCode, embedElementName, marketSlug, showChart, effectiveShowTimeRange, showVolume, theme])
+
+  return { features, iframeSrc, previewSrc, iframeCode, webComponentCode, iframeLines, webComponentLines }
+}
+
+function createInitialEditorState(markets: Market[], initialMarketId?: string | null): EditorState {
+  return {
+    copied: false,
+    embedType: 'iframe',
+    selectedMarketId: getDefaultSelectedMarketId(markets, initialMarketId),
+    showChart: false,
+    showTimeRange: false,
+    showVolume: false,
+    theme: 'light',
+  }
+}
+
+function EventChartEmbedDialogEditor({
+  markets,
+  initialMarketId,
+}: Pick<EventChartEmbedDialogProps, 'markets' | 'initialMarketId'>) {
+  const t = useExtracted()
+  const site = useSiteIdentity()
+  const user = useUser()
+  const [editorState, setEditorState] = useState(() => createInitialEditorState(markets, initialMarketId))
+  const affiliateCode = user?.affiliate_code?.trim() ?? ''
+  const { affiliateSharePercent, tradeFeePercent } = useAffiliateSettings(affiliateCode)
+  const {
+    copied,
+    embedType,
+    selectedMarketId,
+    showChart,
+    showTimeRange,
+    showVolume,
+    theme,
+  } = editorState
+  const showMarketSelector = markets.length > 1
+  const showTimeRangeSelector = showChart
+  const effectiveShowTimeRange = showChart && showTimeRange
+  const siteSlug = useMemo(() => {
+    try {
+      return slugifySiteName(site.name)
+    }
+    catch {
+      return 'market'
+    }
+  }, [site.name])
+  const embedBaseUrl = SITE_URL
+  const embedElementName = `${siteSlug}-market-embed`
+  const embedIframeTitle = `${siteSlug}-market-iframe`
+
+  const marketOptions = useMemo(() => {
+    return markets.map(market => ({
+      id: market.condition_id,
+      label: buildMarketLabel(market),
+    }))
+  }, [markets])
+  const selectedMarket = markets.find(market => market.condition_id === selectedMarketId) ?? markets[0]
+  const marketSlug = selectedMarket?.slug ?? ''
+  const iframeHeight = showChart
+    ? (effectiveShowTimeRange ? IFRAME_HEIGHT_WITH_FILTERS : IFRAME_HEIGHT_WITH_CHART)
+    : IFRAME_HEIGHT_NO_CHART
+
+  const { iframeCode, webComponentCode, iframeLines, webComponentLines, previewSrc } = useEmbedCodeBuilders({
+    embedBaseUrl,
+    embedElementName,
+    embedIframeTitle,
+    marketSlug,
+    theme,
+    showVolume,
+    showChart,
+    effectiveShowTimeRange,
+    affiliateCode,
+    iframeHeight,
+  })
+  const activeCode = embedType === 'iframe' ? iframeCode : webComponentCode
 
   function handleThemeChange(nextTheme: EmbedTheme) {
     setEditorState(current => ({

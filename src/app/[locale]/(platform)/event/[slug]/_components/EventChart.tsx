@@ -158,6 +158,311 @@ const PredictionChart = dynamic<PredictionChartProps>(
   { ssr: false, loading: () => <div className="h-83 w-full" /> },
 )
 
+function useChartSettingsFromStore() {
+  const chartSettings = useSyncExternalStore(
+    subscribeToChartSettings,
+    loadStoredChartSettings,
+    getStoredChartSettingsServerSnapshot,
+  )
+
+  const handleChartSettingsChange = useCallback((nextValue: SetStateAction<ChartSettings>) => {
+    const nextSettings = typeof nextValue === 'function'
+      ? nextValue(chartSettings)
+      : nextValue
+
+    storeChartSettings(nextSettings)
+  }, [chartSettings])
+
+  return { chartSettings, handleChartSettingsChange }
+}
+
+function useChartCursorTracking(chartScopeKey: string) {
+  const [cursorState, setCursorState] = useState<{
+    scopeKey: string
+    snapshot: PredictionChartCursorSnapshot | null
+  }>({
+    scopeKey: '',
+    snapshot: null,
+  })
+
+  const cursorSnapshot = cursorState.scopeKey === chartScopeKey
+    ? cursorState.snapshot
+    : null
+
+  const handleCursorDataChange = useCallback((snapshot: PredictionChartCursorSnapshot | null) => {
+    setCursorState({
+      scopeKey: chartScopeKey,
+      snapshot,
+    })
+  }, [chartScopeKey])
+
+  return { cursorSnapshot, handleCursorDataChange }
+}
+
+function useTweetMarketsDerivations({
+  event,
+  currentTimestampMs,
+  xtrackerData,
+}: {
+  event: Event
+  currentTimestampMs: number
+  xtrackerData: ReturnType<typeof useXTrackerTweetCount>['data']
+}) {
+  const shouldShowTweetMarketsPanel = useMemo(() => isTweetMarketsEvent(event), [event])
+  const tweetCount = useMemo(() => resolveTweetCount(event), [event])
+  const tweetCountdownTargetMs = useMemo(() => resolveTweetCountdownTargetMs(event), [event])
+
+  const resolvedTweetCount = xtrackerData?.totalCount ?? tweetCount
+
+  const resolvedTweetCountdownTargetMs = useMemo(() => {
+    const trackingEndMs = xtrackerData?.trackingEndMs
+    if (typeof trackingEndMs === 'number' && Number.isFinite(trackingEndMs) && trackingEndMs > 0) {
+      return trackingEndMs
+    }
+
+    return tweetCountdownTargetMs
+  }, [tweetCountdownTargetMs, xtrackerData?.trackingEndMs])
+
+  const resolvedTweetStartTargetMs = useMemo(() => {
+    const trackingStartMs = xtrackerData?.trackingStartMs
+    if (typeof trackingStartMs === 'number' && Number.isFinite(trackingStartMs) && trackingStartMs > 0) {
+      return trackingStartMs
+    }
+
+    return parseTimestampToMs(event.start_date ?? null)
+  }, [event.start_date, xtrackerData?.trackingStartMs])
+
+  const shouldRenderTweetMarketsPanel = shouldShowTweetMarketsPanel
+    && resolvedTweetStartTargetMs != null
+    && currentTimestampMs >= resolvedTweetStartTargetMs
+
+  const isTweetMarketsFinal = Boolean(event.resolved_at || event.status === 'resolved')
+    || (
+      resolvedTweetCountdownTargetMs != null
+      && Number.isFinite(resolvedTweetCountdownTargetMs)
+      && currentTimestampMs >= resolvedTweetCountdownTargetMs
+    )
+
+  return {
+    shouldShowTweetMarketsPanel,
+    shouldRenderTweetMarketsPanel,
+    resolvedTweetCount,
+    resolvedTweetCountdownTargetMs,
+    isTweetMarketsFinal,
+  }
+}
+
+function useMarketSelection({
+  eventId,
+  allMarketIds,
+  defaultMarketIds,
+  maxSeriesCount,
+  isSingleMarket,
+}: {
+  eventId: string
+  allMarketIds: string[]
+  defaultMarketIds: string[]
+  maxSeriesCount: number
+  isSingleMarket: boolean
+}) {
+  const [customMarketSelection, setCustomMarketSelection] = useState<{
+    eventId: string
+    marketIds: string[] | null
+  }>(() => ({
+    eventId,
+    marketIds: null,
+  }))
+
+  const activeCustomMarketIds = customMarketSelection.eventId === eventId
+    ? customMarketSelection.marketIds
+    : null
+
+  const selectedMarketIds = useMemo(() => {
+    return isSingleMarket
+      ? defaultMarketIds
+      : resolveSelectedMarketIds(activeCustomMarketIds, allMarketIds, defaultMarketIds)
+  }, [activeCustomMarketIds, allMarketIds, defaultMarketIds, isSingleMarket])
+
+  const handleToggleMarket = useCallback((marketId: string) => {
+    if (isSingleMarket) {
+      return
+    }
+
+    setCustomMarketSelection((prev) => {
+      const currentSelection = resolveSelectedMarketIds(
+        prev.eventId === eventId ? prev.marketIds : null,
+        allMarketIds,
+        defaultMarketIds,
+      )
+      const isSelected = currentSelection.includes(marketId)
+      if (isSelected) {
+        const nextSelection = currentSelection.filter(id => id !== marketId)
+        return nextSelection.length > 0
+          ? { eventId, marketIds: nextSelection }
+          : prev
+      }
+      if (currentSelection.length >= maxSeriesCount) {
+        return prev
+      }
+      const nextSet = new Set(currentSelection)
+      nextSet.add(marketId)
+      return {
+        eventId,
+        marketIds: allMarketIds.filter(id => nextSet.has(id)).slice(0, maxSeriesCount),
+      }
+    })
+  }, [allMarketIds, defaultMarketIds, eventId, isSingleMarket, maxSeriesCount])
+
+  return { selectedMarketIds, handleToggleMarket }
+}
+
+function useChartSeriesBuilders({
+  event,
+  topMarketIds,
+  fallbackMarketIds,
+  allMarketIds,
+  selectedMarketIds,
+  isSingleMarket,
+  showBothOutcomes,
+  activeOutcomeIndex,
+  primaryConditionId,
+  yesSeriesKey,
+  noSeriesKey,
+  yesOutcomeLabel,
+  noOutcomeLabel,
+}: {
+  event: Event
+  topMarketIds: string[]
+  fallbackMarketIds: string[]
+  allMarketIds: string[]
+  selectedMarketIds: string[]
+  isSingleMarket: boolean
+  showBothOutcomes: boolean
+  activeOutcomeIndex: typeof OUTCOME_INDEX.YES | typeof OUTCOME_INDEX.NO
+  primaryConditionId: string
+  yesSeriesKey: string
+  noSeriesKey: string
+  yesOutcomeLabel: string
+  noOutcomeLabel: string
+}) {
+  const chartSeries = useMemo(() => buildChartSeries(event, topMarketIds), [event, topMarketIds])
+  const fallbackChartSeries = useMemo(() => buildChartSeries(event, fallbackMarketIds), [event, fallbackMarketIds])
+  const allSeries = useMemo(() => buildChartSeries(event, allMarketIds), [event, allMarketIds])
+  const selectedSeries = useMemo(() => buildChartSeries(event, selectedMarketIds), [event, selectedMarketIds])
+
+  const selectedColors = useMemo(() => {
+    return Object.fromEntries(selectedSeries.map(series => [series.key, series.color]))
+  }, [selectedSeries])
+
+  const marketOptions = useMemo(() => {
+    return allSeries.map(series => ({
+      ...series,
+      color: selectedColors[series.key] ?? '#374151',
+    }))
+  }, [allSeries, selectedColors])
+
+  const baseSeries = useMemo(() => {
+    if (!isSingleMarket) {
+      if (selectedSeries.length > 0) {
+        return selectedSeries
+      }
+      return chartSeries.length > 0 ? chartSeries : fallbackChartSeries
+    }
+    return chartSeries.length > 0 ? chartSeries : fallbackChartSeries
+  }, [chartSeries, fallbackChartSeries, isSingleMarket, selectedSeries])
+
+  const bothOutcomeSeries = useMemo(() => {
+    if (!showBothOutcomes || !primaryConditionId) {
+      return []
+    }
+    return [
+      { key: yesSeriesKey, name: yesOutcomeLabel, color: 'var(--primary)' },
+      { key: noSeriesKey, name: noOutcomeLabel, color: '#FF6600' },
+    ]
+  }, [showBothOutcomes, primaryConditionId, yesSeriesKey, noSeriesKey, yesOutcomeLabel, noOutcomeLabel])
+
+  const effectiveSeries = useMemo(() => {
+    if (showBothOutcomes) {
+      return bothOutcomeSeries
+    }
+    if (!isSingleMarket || baseSeries.length === 0) {
+      return baseSeries
+    }
+    const primaryColor = activeOutcomeIndex === OUTCOME_INDEX.NO ? '#FF6600' : 'var(--primary)'
+    return baseSeries.map((seriesItem, index) => (index === 0
+      ? { ...seriesItem, color: primaryColor }
+      : seriesItem))
+  }, [activeOutcomeIndex, baseSeries, isSingleMarket, showBothOutcomes, bothOutcomeSeries])
+
+  return {
+    chartSeries,
+    marketOptions,
+    effectiveSeries,
+  }
+}
+
+function useTradeFlowLabels(outcomeTokenKey: string) {
+  const [tradeFlowState, setTradeFlowState] = useState<{
+    tokenKey: string
+    items: TradeFlowLabelItem[]
+  }>({
+    tokenKey: '',
+    items: [],
+  })
+  const tradeFlowIdRef = useRef(0)
+  const tradeFlowItems = tradeFlowState.tokenKey === outcomeTokenKey
+    ? tradeFlowState.items
+    : []
+  const hasTradeFlowLabels = tradeFlowItems.length > 0
+
+  function appendTradeFlowItem(item: Omit<TradeFlowLabelItem, 'id'>) {
+    const id = String(tradeFlowIdRef.current)
+    tradeFlowIdRef.current += 1
+
+    setTradeFlowState((prev) => {
+      const activeItems = prev.tokenKey === outcomeTokenKey ? prev.items : []
+      const nextItems = trimTradeFlowItems(pruneTradeFlowItems([
+        ...activeItems,
+        { ...item, id },
+      ], item.createdAt))
+
+      return {
+        tokenKey: outcomeTokenKey,
+        items: nextItems,
+      }
+    })
+  }
+
+  useEffect(() => {
+    if (!outcomeTokenKey || !hasTradeFlowLabels) {
+      return
+    }
+
+    const interval = window.setInterval(function pruneExpiredTradeFlowItems() {
+      const now = Date.now()
+      setTradeFlowState((prev) => {
+        const activeItems = prev.tokenKey === outcomeTokenKey ? prev.items : []
+        const nextItems = pruneTradeFlowItems(activeItems, now)
+
+        if (nextItems.length === activeItems.length && prev.tokenKey === outcomeTokenKey) {
+          return prev
+        }
+
+        return {
+          tokenKey: outcomeTokenKey,
+          items: nextItems,
+        }
+      })
+    }, tradeFlowCleanupIntervalMs)
+
+    return function stopTradeFlowPruning() {
+      window.clearInterval(interval)
+    }
+  }, [hasTradeFlowLabels, outcomeTokenKey])
+
+  return { tradeFlowItems, hasTradeFlowLabels, appendTradeFlowItem }
+}
+
 function getOutcomeTokenIds(market: Market | null) {
   if (!market) {
     return null
@@ -385,88 +690,33 @@ function EventChartComponent({
   const isSingleMarket = useIsSingleMarket()
   const isNegRiskEnabled = Boolean(event.enable_neg_risk || event.neg_risk)
   const shouldHideChart = !isSingleMarket && !isNegRiskEnabled
-  const chartSettings = useSyncExternalStore(
-    subscribeToChartSettings,
-    loadStoredChartSettings,
-    getStoredChartSettingsServerSnapshot,
-  )
+  const { chartSettings, handleChartSettingsChange } = useChartSettingsFromStore()
 
   const [activeTimeRange, setActiveTimeRange] = useState<TimeRange>('ALL')
   const [activeOutcomeIndex, setActiveOutcomeIndex] = useState<
     typeof OUTCOME_INDEX.YES | typeof OUTCOME_INDEX.NO
   >(OUTCOME_INDEX.YES)
-  const [cursorState, setCursorState] = useState<{
-    scopeKey: string
-    snapshot: PredictionChartCursorSnapshot | null
-  }>({
-    scopeKey: '',
-    snapshot: null,
-  })
-  const [tradeFlowState, setTradeFlowState] = useState<{
-    tokenKey: string
-    items: TradeFlowLabelItem[]
-  }>({
-    tokenKey: '',
-    items: [],
-  })
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const [embedDialogOpen, setEmbedDialogOpen] = useState(false)
   const nowMs = useCurrentTimestamp({ intervalMs: 30_000 })
   const currentTimestampMs = nowMs ?? 0
-  const tradeFlowIdRef = useRef(0)
-
-  const handleChartSettingsChange = useCallback((nextValue: SetStateAction<ChartSettings>) => {
-    const nextSettings = typeof nextValue === 'function'
-      ? nextValue(chartSettings)
-      : nextValue
-
-    storeChartSettings(nextSettings)
-  }, [chartSettings])
 
   const showBothOutcomes = isSingleMarket && chartSettings.bothOutcomes
   const eventHistoryEndAt = useMemo(
     () => resolveEventHistoryEndAt(event),
     [event],
   )
-  const shouldShowTweetMarketsPanel = useMemo(
-    () => isTweetMarketsEvent(event),
-    [event],
-  )
-  const tweetCount = useMemo(
-    () => resolveTweetCount(event),
-    [event],
-  )
-  const tweetCountdownTargetMs = useMemo(
-    () => resolveTweetCountdownTargetMs(event),
-    [event],
-  )
-  const xtrackerTweetCountQuery = useXTrackerTweetCount(event, shouldShowTweetMarketsPanel)
-  const resolvedTweetCount = xtrackerTweetCountQuery.data?.totalCount ?? tweetCount
-  const resolvedTweetCountdownTargetMs = useMemo(() => {
-    const trackingEndMs = xtrackerTweetCountQuery.data?.trackingEndMs
-    if (typeof trackingEndMs === 'number' && Number.isFinite(trackingEndMs) && trackingEndMs > 0) {
-      return trackingEndMs
-    }
-
-    return tweetCountdownTargetMs
-  }, [tweetCountdownTargetMs, xtrackerTweetCountQuery.data?.trackingEndMs])
-  const resolvedTweetStartTargetMs = useMemo(() => {
-    const trackingStartMs = xtrackerTweetCountQuery.data?.trackingStartMs
-    if (typeof trackingStartMs === 'number' && Number.isFinite(trackingStartMs) && trackingStartMs > 0) {
-      return trackingStartMs
-    }
-
-    return parseTimestampToMs(event.start_date ?? null)
-  }, [event.start_date, xtrackerTweetCountQuery.data?.trackingStartMs])
-  const shouldRenderTweetMarketsPanel = shouldShowTweetMarketsPanel
-    && resolvedTweetStartTargetMs != null
-    && currentTimestampMs >= resolvedTweetStartTargetMs
-  const isTweetMarketsFinal = Boolean(event.resolved_at || event.status === 'resolved')
-    || (
-      resolvedTweetCountdownTargetMs != null
-      && Number.isFinite(resolvedTweetCountdownTargetMs)
-      && currentTimestampMs >= resolvedTweetCountdownTargetMs
-    )
+  const xtrackerTweetCountQuery = useXTrackerTweetCount(event, isTweetMarketsEvent(event))
+  const {
+    shouldRenderTweetMarketsPanel,
+    resolvedTweetCount,
+    resolvedTweetCountdownTargetMs,
+    isTweetMarketsFinal,
+  } = useTweetMarketsDerivations({
+    event,
+    currentTimestampMs,
+    xtrackerData: xtrackerTweetCountQuery.data,
+  })
 
   const {
     displayChanceByMarket,
@@ -511,103 +761,23 @@ function EventChartComponent({
     () => (topMarketIds.length > 0 ? topMarketIds : fallbackMarketIds),
     [topMarketIds, fallbackMarketIds],
   )
-  const [customMarketSelection, setCustomMarketSelection] = useState<{
-    eventId: string
-    marketIds: string[] | null
-  }>(() => ({
+  const { selectedMarketIds, handleToggleMarket } = useMarketSelection({
     eventId: event.id,
-    marketIds: null,
-  }))
-  const activeCustomMarketIds = customMarketSelection.eventId === event.id
-    ? customMarketSelection.marketIds
-    : null
-  const selectedMarketIds = useMemo(
-    () => (isSingleMarket
-      ? defaultMarketIds
-      : resolveSelectedMarketIds(activeCustomMarketIds, allMarketIds, defaultMarketIds)),
-    [activeCustomMarketIds, allMarketIds, defaultMarketIds, isSingleMarket],
-  )
+    allMarketIds,
+    defaultMarketIds,
+    maxSeriesCount,
+    isSingleMarket,
+  })
 
-  const handleToggleMarket = useCallback((marketId: string) => {
+  const primaryMarket = useMemo(() => {
     if (isSingleMarket) {
-      return
+      return event.markets[0]
     }
-
-    setCustomMarketSelection((prev) => {
-      const currentSelection = resolveSelectedMarketIds(
-        prev.eventId === event.id ? prev.marketIds : null,
-        allMarketIds,
-        defaultMarketIds,
-      )
-      const isSelected = currentSelection.includes(marketId)
-      if (isSelected) {
-        const nextSelection = currentSelection.filter(id => id !== marketId)
-        return nextSelection.length > 0
-          ? { eventId: event.id, marketIds: nextSelection }
-          : prev
-      }
-      if (currentSelection.length >= maxSeriesCount) {
-        return prev
-      }
-      const nextSet = new Set(currentSelection)
-      nextSet.add(marketId)
-      return {
-        eventId: event.id,
-        marketIds: allMarketIds.filter(id => nextSet.has(id)).slice(0, maxSeriesCount),
-      }
-    })
-  }, [allMarketIds, defaultMarketIds, event.id, isSingleMarket, maxSeriesCount])
-
-  const chartSeries = useMemo(
-    () => buildChartSeries(event, topMarketIds),
-    [event, topMarketIds],
-  )
-  const fallbackChartSeries = useMemo(
-    () => buildChartSeries(event, fallbackMarketIds),
-    [event, fallbackMarketIds],
-  )
-  const allSeries = useMemo(
-    () => buildChartSeries(event, allMarketIds),
-    [event, allMarketIds],
-  )
-  const selectedSeries = useMemo(
-    () => buildChartSeries(event, selectedMarketIds),
-    [event, selectedMarketIds],
-  )
-  const selectedColors = useMemo(
-    () => Object.fromEntries(selectedSeries.map(series => [series.key, series.color])),
-    [selectedSeries],
-  )
-  const marketOptions = useMemo(
-    () => allSeries.map(series => ({
-      ...series,
-      color: selectedColors[series.key] ?? '#374151',
-    })),
-    [allSeries, selectedColors],
-  )
-
-  const baseSeries = useMemo(() => {
-    if (!isSingleMarket) {
-      if (selectedSeries.length > 0) {
-        return selectedSeries
-      }
-      return chartSeries.length > 0 ? chartSeries : fallbackChartSeries
-    }
-    return chartSeries.length > 0 ? chartSeries : fallbackChartSeries
-  }, [chartSeries, fallbackChartSeries, isSingleMarket, selectedSeries])
-
-  const primaryMarket = useMemo(
-    () => {
-      if (isSingleMarket) {
-        return event.markets[0]
-      }
-      const primaryId = baseSeries[0]?.key
-      return (primaryId
-        ? event.markets.find(market => market.condition_id === primaryId)
-        : null) ?? event.markets[0]
-    },
-    [event.markets, baseSeries, isSingleMarket],
-  )
+    const primaryId = selectedMarketIds[0] ?? topMarketIds[0] ?? fallbackMarketIds[0]
+    return (primaryId
+      ? event.markets.find(market => market.condition_id === primaryId)
+      : null) ?? event.markets[0]
+  }, [event.markets, selectedMarketIds, topMarketIds, fallbackMarketIds, isSingleMarket])
 
   const primaryConditionId = primaryMarket?.condition_id ?? ''
   const yesSeriesKey = showBothOutcomes && primaryConditionId
@@ -618,31 +788,22 @@ function EventChartComponent({
     : primaryConditionId
   const yesOutcomeLabel = getOutcomeLabelForMarket(primaryMarket, OUTCOME_INDEX.YES)
   const noOutcomeLabel = getOutcomeLabelForMarket(primaryMarket, OUTCOME_INDEX.NO)
-  const bothOutcomeSeries = useMemo(
-    () => {
-      if (!showBothOutcomes || !primaryConditionId) {
-        return []
-      }
-      return [
-        { key: yesSeriesKey, name: yesOutcomeLabel, color: 'var(--primary)' },
-        { key: noSeriesKey, name: noOutcomeLabel, color: '#FF6600' },
-      ]
-    },
-    [showBothOutcomes, primaryConditionId, yesSeriesKey, noSeriesKey, yesOutcomeLabel, noOutcomeLabel],
-  )
 
-  const effectiveSeries = useMemo(() => {
-    if (showBothOutcomes) {
-      return bothOutcomeSeries
-    }
-    if (!isSingleMarket || baseSeries.length === 0) {
-      return baseSeries
-    }
-    const primaryColor = activeOutcomeIndex === OUTCOME_INDEX.NO ? '#FF6600' : 'var(--primary)'
-    return baseSeries.map((seriesItem, index) => (index === 0
-      ? { ...seriesItem, color: primaryColor }
-      : seriesItem))
-  }, [activeOutcomeIndex, baseSeries, isSingleMarket, showBothOutcomes, bothOutcomeSeries])
+  const { chartSeries, marketOptions, effectiveSeries } = useChartSeriesBuilders({
+    event,
+    topMarketIds,
+    fallbackMarketIds,
+    allMarketIds,
+    selectedMarketIds,
+    isSingleMarket,
+    showBothOutcomes,
+    activeOutcomeIndex,
+    primaryConditionId,
+    yesSeriesKey,
+    noSeriesKey,
+    yesOutcomeLabel,
+    noOutcomeLabel,
+  })
 
   const watermark = useMemo(
     () => ({
@@ -855,15 +1016,7 @@ function EventChartComponent({
     const seriesKeys = effectiveSeries.map(series => series.key).join(',')
     return `${event.id}:${activeTimeRange}:${activeOutcomeIndex}:${seriesKeys}`
   }, [event.id, activeTimeRange, activeOutcomeIndex, effectiveSeries])
-  const cursorSnapshot = cursorState.scopeKey === chartScopeKey
-    ? cursorState.snapshot
-    : null
-  const handleCursorDataChange = useCallback((snapshot: PredictionChartCursorSnapshot | null) => {
-    setCursorState({
-      scopeKey: chartScopeKey,
-      snapshot,
-    })
-  }, [chartScopeKey])
+  const { cursorSnapshot, handleCursorDataChange } = useChartCursorTracking(chartScopeKey)
 
   const { width: windowWidth } = useWindowSize()
   const chartWidth = isMobile ? ((windowWidth || 400) * 0.84) : Math.min((windowWidth ?? 1440) * 0.55, 900)
@@ -962,10 +1115,7 @@ function EventChartComponent({
   const outcomeTokenKey = outcomeTokenIds
     ? `${outcomeTokenIds.yesTokenId}:${outcomeTokenIds.noTokenId}`
     : ''
-  const tradeFlowItems = tradeFlowState.tokenKey === outcomeTokenKey
-    ? tradeFlowState.items
-    : []
-  const hasTradeFlowLabels = tradeFlowItems.length > 0
+  const { tradeFlowItems, hasTradeFlowLabels, appendTradeFlowItem } = useTradeFlowLabels(outcomeTokenKey)
 
   useMarketChannelSubscription((payload) => {
     if (!outcomeTokenIds) {
@@ -1000,50 +1150,8 @@ function EventChartComponent({
       return
     }
 
-    const createdAt = Date.now()
-    const id = String(tradeFlowIdRef.current)
-    tradeFlowIdRef.current += 1
-
-    setTradeFlowState((prev) => {
-      const activeItems = prev.tokenKey === outcomeTokenKey ? prev.items : []
-      const nextItems = trimTradeFlowItems(pruneTradeFlowItems([
-        ...activeItems,
-        { id, label, outcome, createdAt },
-      ], createdAt))
-
-      return {
-        tokenKey: outcomeTokenKey,
-        items: nextItems,
-      }
-    })
+    appendTradeFlowItem({ label, outcome, createdAt: Date.now() })
   })
-
-  useEffect(() => {
-    if (!outcomeTokenKey || !hasTradeFlowLabels) {
-      return
-    }
-
-    const interval = window.setInterval(() => {
-      const now = Date.now()
-      setTradeFlowState((prev) => {
-        const activeItems = prev.tokenKey === outcomeTokenKey ? prev.items : []
-        const nextItems = pruneTradeFlowItems(activeItems, now)
-
-        if (nextItems.length === activeItems.length && prev.tokenKey === outcomeTokenKey) {
-          return prev
-        }
-
-        return {
-          tokenKey: outcomeTokenKey,
-          items: nextItems,
-        }
-      })
-    }, tradeFlowCleanupIntervalMs)
-
-    return () => {
-      window.clearInterval(interval)
-    }
-  }, [hasTradeFlowLabels, outcomeTokenKey])
 
   const legendContent = shouldRenderLegendEntries
     ? (
