@@ -1,9 +1,20 @@
 import type { ReactNode } from 'react'
 import { ScaleIcon, ShieldCheckIcon } from 'lucide-react'
 import { getExtracted } from 'next-intl/server'
-import Image from 'next/image'
 
 const WAGERWIRE_ABOUT_URL = 'https://www.wagerwire.com/about'
+
+// The wagerwire-logo.png asset is 1770x350 — a horizontal wordmark where the
+// circular W mark occupies the leftmost ~350x350 square. We render only that
+// square by using background-size: auto 100% (scales the image to the
+// container height) + background-position: left center (shows leftmost pixels).
+// This avoids shipping a new cropped asset.
+const WW_MARK_STYLE = {
+  backgroundImage: 'url(\'/brand/wagerwire-logo.png\')',
+  backgroundSize: 'auto 100%',
+  backgroundPosition: 'left center',
+  backgroundRepeat: 'no-repeat',
+} as const
 
 interface InfoBoxProps {
   title: string
@@ -60,12 +71,11 @@ export default async function HomeV2InfoStrip() {
         title={t('WagerWire')}
         subtitle={t('The marketplace for sports bets')}
         icon={(
-          <Image
-            src="/brand/wagerwire-logo.png"
-            alt="WagerWire"
-            width={20}
-            height={20}
-            className="size-5 object-contain"
+          <div
+            role="img"
+            aria-label="WagerWire"
+            className="size-5"
+            style={WW_MARK_STYLE}
           />
         )}
       />
