@@ -16,7 +16,7 @@ export const THEME_SITE_SOCIAL_LINK_FIELDS = [
 export type ThemeSiteSocialLinkField = typeof THEME_SITE_SOCIAL_LINK_FIELDS[number]
 
 const THEME_SITE_LOGO_MODE_SET = new Set<string>(THEME_SITE_LOGO_MODES)
-const DEFAULT_SITE_NAME_FALLBACK = 'Kuest'
+const DEFAULT_SITE_NAME_FALLBACK = 'WirePredictions'
 const DEFAULT_SITE_DESCRIPTION_FALLBACK = 'Decentralized Prediction Markets'
 const DEFAULT_SITE_LOGO_SVG_FALLBACK = `
 <svg viewBox="0 0 518 414" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">

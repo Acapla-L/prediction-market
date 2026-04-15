@@ -6,12 +6,11 @@ import { filterHomeEvents } from '@/lib/home-events'
 interface SidebarLists {
   trending: Event[]
   fresh: Event[]
-  highestVolume: Event[]
 }
 
 const SIDEBAR_LIST_LIMIT = 3
 
-async function fetchSorted(sortBy: 'trending' | 'created_at' | 'volume', locale: SupportedLocale) {
+async function fetchSorted(sortBy: 'trending' | 'created_at', locale: SupportedLocale) {
   const { data, error } = await EventRepository.listEvents({
     tag: 'trending',
     mainTag: '',
@@ -36,11 +35,10 @@ async function fetchSorted(sortBy: 'trending' | 'created_at' | 'volume', locale:
 }
 
 export async function fetchSidebarLists(locale: SupportedLocale): Promise<SidebarLists> {
-  const [trending, fresh, highestVolume] = await Promise.all([
+  const [trending, fresh] = await Promise.all([
     fetchSorted('trending', locale),
     fetchSorted('created_at', locale),
-    fetchSorted('volume', locale),
   ])
 
-  return { trending, fresh, highestVolume }
+  return { trending, fresh }
 }

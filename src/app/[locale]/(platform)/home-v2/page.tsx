@@ -4,7 +4,7 @@ import type { SupportedLocale } from '@/i18n/locales'
 import { getExtracted, setRequestLocale } from 'next-intl/server'
 import { cacheTag } from 'next/cache'
 import HomeV2CategorySection from '@/app/[locale]/(platform)/home-v2/_components/HomeV2CategorySection'
-import HomeV2HeroPlaceholder from '@/app/[locale]/(platform)/home-v2/_components/HomeV2HeroPlaceholder'
+import HomeV2Hero from '@/app/[locale]/(platform)/home-v2/_components/HomeV2Hero'
 import HomeV2InfoStrip from '@/app/[locale]/(platform)/home-v2/_components/HomeV2InfoStrip'
 import HomeV2Sidebar from '@/app/[locale]/(platform)/home-v2/_components/HomeV2Sidebar'
 import { HOME_V2_CATEGORIES } from '@/app/[locale]/(platform)/home-v2/_config/categories'
@@ -45,15 +45,15 @@ export default async function HomeV2Page({ params }: HomeV2PageProps) {
   }
 
   return (
-    <main className="container py-6">
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+    <main className="container py-4 lg:py-6">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-6">
         {/* LEFT COLUMN */}
-        <div className="flex min-w-0 flex-col gap-8">
-          <HomeV2HeroPlaceholder events={featuredEvents} />
+        <div className="flex min-w-0 flex-col gap-6 lg:gap-8">
+          <HomeV2Hero events={featuredEvents} />
 
           <HomeV2InfoStrip />
 
-          <div className="flex flex-col gap-10">
+          <div className="flex flex-col gap-8 lg:gap-10">
             {categorySections.map(section => (
               <HomeV2CategorySection
                 key={section.config.id}
@@ -70,7 +70,6 @@ export default async function HomeV2Page({ params }: HomeV2PageProps) {
         <HomeV2Sidebar
           trending={sidebarLists.trending}
           fresh={sidebarLists.fresh}
-          highestVolume={sidebarLists.highestVolume}
         />
       </div>
     </main>

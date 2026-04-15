@@ -1,40 +1,43 @@
-import { BriefcaseIcon, ScaleIcon, ShieldCheckIcon } from 'lucide-react'
 import { getExtracted } from 'next-intl/server'
+import Image from 'next/image'
+
+const WAGERWIRE_ABOUT_URL = 'https://www.wagerwire.com/about'
 
 interface InfoBoxProps {
-  href: string
-  background: string
-  foreground: string
-  iconTint: string
-  icon: React.ReactNode
   title: string
   subtitle: string
-  external?: boolean
 }
 
-function InfoBox({ href, background, foreground, iconTint, icon, title, subtitle, external }: InfoBoxProps) {
-  const linkProps = external
-    ? { target: '_blank', rel: 'noopener noreferrer' as const }
-    : {}
-
+function InfoBox({ title, subtitle }: InfoBoxProps) {
   return (
     <a
-      href={href}
-      {...linkProps}
-      className={`
-        group flex flex-row items-center gap-4 overflow-hidden rounded-xl p-5 transition-all
-        hover:-translate-y-0.5 hover:brightness-110
-        ${background} ${foreground}
-      `}
+      href={WAGERWIRE_ABOUT_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="
+        group flex flex-row items-center gap-4 overflow-hidden rounded-xl border border-primary/25 bg-primary/5 p-5
+        transition-all
+        hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/10
+      "
     >
-      <div className={`flex size-10 shrink-0 items-center justify-center rounded-lg ${iconTint}`}>
-        {icon}
+      <div
+        className="
+          flex size-10 shrink-0 items-center justify-center rounded-lg border border-primary/30 bg-background/40
+        "
+      >
+        <Image
+          src="/brand/wagerwire-logo.png"
+          alt="WagerWire"
+          width={24}
+          height={24}
+          className="size-6 object-contain"
+        />
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-sm/tight font-bold">
+        <span className="truncate text-sm/tight font-bold text-foreground">
           {title}
         </span>
-        <span className="line-clamp-2 text-xs/snug opacity-80">
+        <span className="line-clamp-2 text-xs/snug text-muted-foreground">
           {subtitle}
         </span>
       </div>
@@ -46,34 +49,16 @@ export default async function HomeV2InfoStrip() {
   const t = await getExtracted()
 
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
       <InfoBox
-        href="https://wagerwire.com/for-sale"
-        external
-        background="bg-[#02FDDD]"
-        foreground="text-neutral-900"
-        iconTint="bg-black/10"
-        icon={<BriefcaseIcon className="size-5" />}
         title={t('WagerWire')}
         subtitle={t('The marketplace for sports bets')}
       />
-      {/* TODO: link to /responsible-gambling once the page ships */}
       <InfoBox
-        href="#"
-        background="bg-[#0B1B3A]"
-        foreground="text-white"
-        iconTint="bg-white/10"
-        icon={<ShieldCheckIcon className="size-5" />}
         title={t('Responsible Trading')}
         subtitle={t('Tools and tips for trading smart')}
       />
-      {/* TODO: link to /how-it-works once the page ships */}
       <InfoBox
-        href="#"
-        background="bg-[#1E1B4B]"
-        foreground="text-white"
-        iconTint="bg-white/10"
-        icon={<ScaleIcon className="size-5" />}
         title={t('Market Integrity')}
         subtitle={t('How we ensure fair markets')}
       />

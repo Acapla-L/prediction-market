@@ -9,10 +9,9 @@ import SidebarMarketplaceCard from '@/app/[locale]/(platform)/home-v2/_component
 interface HomeV2SidebarProps {
   trending: Event[]
   fresh: Event[]
-  highestVolume: Event[]
 }
 
-export default async function HomeV2Sidebar({ trending, fresh, highestVolume }: HomeV2SidebarProps) {
+export default async function HomeV2Sidebar({ trending, fresh }: HomeV2SidebarProps) {
   const t = await getExtracted()
 
   // TODO: replace # placeholders once futures landing pages or series slugs are confirmed
@@ -23,12 +22,11 @@ export default async function HomeV2Sidebar({ trending, fresh, highestVolume }: 
   ]
 
   return (
-    <aside className="flex flex-col gap-4">
+    <aside className="flex flex-col gap-3 lg:gap-4">
       <SidebarMarketplaceCard />
       <SidebarEventListCard title={t('Trending')} events={trending} />
-      <SidebarStaticListCard title={t('Futures')} rows={futuresRows} />
-      <SidebarEventListCard title={t('New')} events={fresh} />
-      <SidebarEventListCard title={t('Highest Volume')} events={highestVolume} />
+      <SidebarStaticListCard title={t('Sports Futures')} rows={futuresRows} />
+      <SidebarEventListCard title={t('New Markets')} events={fresh} />
     </aside>
   )
 }

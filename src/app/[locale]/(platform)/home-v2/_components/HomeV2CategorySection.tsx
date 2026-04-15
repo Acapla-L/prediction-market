@@ -1,6 +1,6 @@
 import type { CategorySection } from '@/app/[locale]/(platform)/home-v2/_data/fetchCategoryEvents'
 import { ChevronRightIcon } from 'lucide-react'
-import EventCard from '@/app/[locale]/(platform)/(home)/_components/EventCard'
+import EventsStaticGrid from '@/app/[locale]/(platform)/(home)/_components/EventsStaticGrid'
 import AppLink from '@/components/AppLink'
 
 interface HomeV2CategorySectionProps {
@@ -9,6 +9,8 @@ interface HomeV2CategorySectionProps {
   title: string
   viewAllLabel: string
 }
+
+const EMPTY_PRICE_OVERRIDES: Record<string, number> = {}
 
 export default function HomeV2CategorySection({
   section,
@@ -23,7 +25,7 @@ export default function HomeV2CategorySection({
   }
 
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-lg font-semibold text-foreground">
           {title}
@@ -40,15 +42,12 @@ export default function HomeV2CategorySection({
           <ChevronRightIcon className="size-3.5 transition-transform group-hover:translate-x-0.5" />
         </AppLink>
       </div>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {events.map(event => (
-          <EventCard
-            key={event.id}
-            event={event}
-            currentTimestamp={currentTimestamp}
-          />
-        ))}
-      </div>
+      <EventsStaticGrid
+        events={events}
+        priceOverridesByMarket={EMPTY_PRICE_OVERRIDES}
+        maxColumns={2}
+        currentTimestamp={currentTimestamp}
+      />
     </section>
   )
 }
