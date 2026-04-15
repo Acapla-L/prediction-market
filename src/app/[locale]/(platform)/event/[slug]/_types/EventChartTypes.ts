@@ -6,4 +6,6 @@ export interface EventChartProps {
   seriesEvents?: EventSeriesEntry[]
   showControls?: boolean
   showSeriesNavigation?: boolean
+  chartWidth?: number
+  chartHeight?: number
 }

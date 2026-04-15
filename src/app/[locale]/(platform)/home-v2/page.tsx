@@ -7,8 +7,8 @@ import HomeV2CategorySection from '@/app/[locale]/(platform)/home-v2/_components
 import HomeV2Hero from '@/app/[locale]/(platform)/home-v2/_components/HomeV2Hero'
 import HomeV2InfoStrip from '@/app/[locale]/(platform)/home-v2/_components/HomeV2InfoStrip'
 import HomeV2Sidebar from '@/app/[locale]/(platform)/home-v2/_components/HomeV2Sidebar'
+import SidebarMarketplaceCard from '@/app/[locale]/(platform)/home-v2/_components/SidebarMarketplaceCard'
 import { HOME_V2_CATEGORIES } from '@/app/[locale]/(platform)/home-v2/_config/categories'
-import { FEATURED_EVENT_SLUGS } from '@/app/[locale]/(platform)/home-v2/_config/featured'
 import { fetchCategoryEvents } from '@/app/[locale]/(platform)/home-v2/_data/fetchCategoryEvents'
 import { fetchFeaturedEvents } from '@/app/[locale]/(platform)/home-v2/_data/fetchFeaturedEvents'
 import { fetchSidebarLists } from '@/app/[locale]/(platform)/home-v2/_data/fetchSidebarLists'
@@ -30,7 +30,7 @@ export default async function HomeV2Page({ params }: HomeV2PageProps) {
 
   const t = await getExtracted()
   const [featuredEvents, sidebarLists, categorySections] = await Promise.all([
-    fetchFeaturedEvents(FEATURED_EVENT_SLUGS, resolvedLocale),
+    fetchFeaturedEvents(resolvedLocale),
     fetchSidebarLists(resolvedLocale),
     fetchCategoryEvents(HOME_V2_CATEGORIES, resolvedLocale),
   ])
@@ -50,6 +50,11 @@ export default async function HomeV2Page({ params }: HomeV2PageProps) {
         {/* LEFT COLUMN */}
         <div className="flex min-w-0 flex-col gap-6 lg:gap-8">
           <HomeV2Hero events={featuredEvents} />
+
+          {/* Marketplace card appears under the hero on mobile; on desktop it lives in the sidebar. */}
+          <div className="lg:hidden">
+            <SidebarMarketplaceCard />
+          </div>
 
           <HomeV2InfoStrip />
 

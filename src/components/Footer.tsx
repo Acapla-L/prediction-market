@@ -552,8 +552,8 @@ export default function Footer() {
   const site = useSiteIdentity()
 
   return (
-    <footer className="mt-16 hidden border-t border-border bg-background text-foreground lg:mt-20 lg:block">
-      <div className="mx-auto max-w-7xl px-6 py-16">
+    <footer className="mt-16 border-t border-border bg-background text-foreground lg:mt-20">
+      <div className="mx-auto max-w-7xl px-6 py-12 pb-28 lg:py-16 lg:pb-16">
         {/* ===== Section 1: Main Grid ===== */}
         <div className="grid grid-cols-1 gap-12 lg:grid-cols-12">
           {/* Brand block */}

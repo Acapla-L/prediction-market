@@ -1,14 +1,24 @@
 'use client'
 
 import type { Event } from '@/types'
-import HomeV2HeroChart from '@/app/[locale]/(platform)/home-v2/_components/HomeV2HeroChart'
+import dynamic from 'next/dynamic'
+import { useEffect, useRef, useState } from 'react'
+import EventMarketChannelProvider from '@/app/[locale]/(platform)/event/[slug]/_components/EventMarketChannelProvider'
 import HomeV2HeroChartSkeleton from '@/app/[locale]/(platform)/home-v2/_components/HomeV2HeroChartSkeleton'
 import AppLink from '@/components/AppLink'
 import { Badge } from '@/components/ui/badge'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { OUTCOME_INDEX } from '@/lib/constants'
 import { resolveEventPagePath } from '@/lib/events-routing'
 import { formatVolume } from '@/lib/formatters'
 import { buildChanceByMarket } from '@/lib/market-chance'
+
+// Reuse the same chart component that works on event detail pages. Dynamic
+// import keeps the heavy Visx bundle out of first paint.
+const EventChart = dynamic(
+  () => import('@/app/[locale]/(platform)/event/[slug]/_components/EventChart'),
+  { ssr: false, loading: () => <HomeV2HeroChartSkeleton /> },
+)
 
 interface HomeV2HeroSlideProps {
   event: Event
@@ -33,7 +43,33 @@ function resolveCategoryLabel(event: Event): string {
   return (mainCategory?.name || event.main_tag || event.tags?.[0]?.name || 'Featured').toUpperCase()
 }
 
+function useContainerWidth(): [React.RefObject<HTMLDivElement | null>, number] {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState(0)
+
+  useEffect(() => {
+    const node = ref.current
+    if (!node || typeof ResizeObserver === 'undefined') {
+      return
+    }
+    setWidth(node.getBoundingClientRect().width)
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry) {
+        setWidth(Math.max(0, Math.floor(entry.contentRect.width)))
+      }
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  return [ref, width]
+}
+
 export default function HomeV2HeroSlide({ event, isActive }: HomeV2HeroSlideProps) {
+  const [containerRef, containerWidth] = useContainerWidth()
+  const isMobile = useIsMobile()
+  const chartHeight = isMobile ? 140 : 180
   const yesProbability = pickOutcomeProbability(event, OUTCOME_INDEX.YES)
   const noProbability = 100 - yesProbability
   const categoryLabel = resolveCategoryLabel(event)
@@ -43,7 +79,7 @@ export default function HomeV2HeroSlide({ event, isActive }: HomeV2HeroSlideProp
   return (
     <article
       aria-roledescription="slide"
-      className="flex min-w-0 flex-[0_0_100%] flex-col gap-3 px-1"
+      className="flex min-w-0 flex-[0_0_100%] flex-col gap-2 px-1 lg:gap-3"
     >
       <div className="flex items-center justify-between gap-3 px-1">
         <Badge variant="outline" className="text-2xs font-semibold tracking-wider">
@@ -63,14 +99,29 @@ export default function HomeV2HeroSlide({ event, isActive }: HomeV2HeroSlideProp
         href={href}
         className="group block px-1 transition-colors hover:text-foreground"
       >
-        <h2 className="line-clamp-2 text-xl/snug font-semibold text-foreground lg:text-2xl/snug">
+        <h2 className="line-clamp-2 text-base/snug font-semibold text-foreground sm:text-lg/snug lg:text-xl/snug">
           {event.title}
         </h2>
       </AppLink>
 
-      <div className="px-1">
-        {isActive
-          ? <HomeV2HeroChart event={event} />
+      <div
+        ref={containerRef}
+        className="relative w-full px-1"
+        style={{ height: chartHeight }}
+      >
+        {isActive && containerWidth > 0
+          ? (
+              <EventMarketChannelProvider markets={event.markets}>
+                <EventChart
+                  event={event}
+                  isMobile={isMobile}
+                  showControls={false}
+                  showSeriesNavigation={false}
+                  chartWidth={containerWidth - 8}
+                  chartHeight={chartHeight}
+                />
+              </EventMarketChannelProvider>
+            )
           : <HomeV2HeroChartSkeleton />}
       </div>
 

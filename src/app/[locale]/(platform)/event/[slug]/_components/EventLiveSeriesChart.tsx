@@ -690,6 +690,8 @@ interface EventLiveSeriesChartProps {
   isMobile: boolean
   seriesEvents?: EventSeriesEntry[]
   config: EventLiveChartConfig
+  chartWidth?: number
+  chartHeight?: number
 }
 
 export default function EventLiveSeriesChart({
@@ -697,6 +699,8 @@ export default function EventLiveSeriesChart({
   isMobile,
   seriesEvents = [],
   config,
+  chartWidth,
+  chartHeight,
 }: EventLiveSeriesChartProps) {
   const subscriptionSymbol = useMemo(
     () => normalizeSubscriptionSymbol(config.topic, config.symbol),
@@ -712,6 +716,8 @@ export default function EventLiveSeriesChart({
       seriesEvents={seriesEvents}
       config={config}
       subscriptionSymbol={subscriptionSymbol}
+      chartWidthOverride={chartWidth}
+      chartHeightOverride={chartHeight}
     />
   )
 }
@@ -722,6 +728,8 @@ interface EventLiveSeriesChartContentProps {
   seriesEvents: EventSeriesEntry[]
   config: EventLiveChartConfig
   subscriptionSymbol: string
+  chartWidthOverride?: number
+  chartHeightOverride?: number
 }
 
 function EventLiveSeriesChartContent({
@@ -730,6 +738,8 @@ function EventLiveSeriesChartContent({
   seriesEvents,
   config,
   subscriptionSymbol,
+  chartWidthOverride,
+  chartHeightOverride,
 }: EventLiveSeriesChartContentProps) {
   const wsUrl = process.env.WS_LIVE_DATA_URL
   const site = useSiteIdentity()
@@ -1087,6 +1097,9 @@ function EventLiveSeriesChartContent({
   )
 
   const chartWidth = useMemo(() => {
+    if (chartWidthOverride !== undefined) {
+      return chartWidthOverride
+    }
     if (!windowWidth) {
       return 900
     }
@@ -1094,7 +1107,7 @@ function EventLiveSeriesChartContent({
       return Math.max(320, windowWidth * 0.84)
     }
     return Math.min(windowWidth * 0.55, 900)
-  }, [isMobile, windowWidth])
+  }, [chartWidthOverride, isMobile, windowWidth])
 
   const fallbackCurrentPrice = useMemo(() => {
     if (referenceSnapshot) {
@@ -1660,7 +1673,7 @@ function EventLiveSeriesChartContent({
                   data={renderData}
                   series={series}
                   width={chartWidth}
-                  height={LIVE_CHART_HEIGHT}
+                  height={chartHeightOverride ?? LIVE_CHART_HEIGHT}
                   margin={{
                     top: LIVE_CHART_MARGIN_TOP,
                     right: LIVE_CHART_MARGIN_RIGHT,

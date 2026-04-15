@@ -25,16 +25,24 @@ export default function HowItWorksDeferred() {
       setShouldRender(true)
     }
 
-    const passiveOnceOptions = { once: true, passive: true } satisfies AddEventListenerOptions
+    // Load on idle so first paint isn't blocked, but don't require user
+    // interaction — the link should appear on every route as soon as the
+    // browser is free (typically within a few hundred ms of hydration).
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number
+      cancelIdleCallback?: (handle: number) => void
+    }
 
-    window.addEventListener('scroll', renderHowItWorks, passiveOnceOptions)
-    window.addEventListener('pointerdown', renderHowItWorks, passiveOnceOptions)
-    window.addEventListener('keydown', renderHowItWorks, { once: true })
+    if (typeof idleWindow.requestIdleCallback === 'function') {
+      const handle = idleWindow.requestIdleCallback(renderHowItWorks, { timeout: 1500 })
+      return () => {
+        idleWindow.cancelIdleCallback?.(handle)
+      }
+    }
 
+    const timeoutId = window.setTimeout(renderHowItWorks, 500)
     return () => {
-      window.removeEventListener('scroll', renderHowItWorks)
-      window.removeEventListener('pointerdown', renderHowItWorks)
-      window.removeEventListener('keydown', renderHowItWorks)
+      window.clearTimeout(timeoutId)
     }
   }, [shouldRenderInHeader, user])
 

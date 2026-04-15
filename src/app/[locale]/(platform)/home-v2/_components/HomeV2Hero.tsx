@@ -64,12 +64,12 @@ export default function HomeV2Hero({ events }: HomeV2HeroProps) {
 
   return (
     <Card
-      className="relative overflow-hidden p-4 lg:p-5"
+      className="relative overflow-hidden p-3 lg:p-5"
       role="region"
       aria-roledescription="carousel"
       aria-label="Featured markets"
     >
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-2 flex items-center justify-between gap-3 lg:mb-3">
         <span className="text-2xs font-semibold tracking-wider text-muted-foreground uppercase">
           Featured
         </span>

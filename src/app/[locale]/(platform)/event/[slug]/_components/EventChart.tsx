@@ -377,6 +377,8 @@ function EventChartComponent({
   seriesEvents = [],
   showControls = true,
   showSeriesNavigation = true,
+  chartWidth: chartWidthOverride,
+  chartHeight: chartHeightOverride,
 }: EventChartProps) {
   const site = useSiteIdentity()
   const user = useUser()
@@ -866,7 +868,8 @@ function EventChartComponent({
   }, [chartScopeKey])
 
   const { width: windowWidth } = useWindowSize()
-  const chartWidth = isMobile ? ((windowWidth || 400) * 0.84) : Math.min((windowWidth ?? 1440) * 0.55, 900)
+  const defaultChartWidth = isMobile ? ((windowWidth || 400) * 0.84) : Math.min((windowWidth ?? 1440) * 0.55, 900)
+  const chartWidth = chartWidthOverride ?? defaultChartWidth
 
   const legendEntries = useMemo<Array<SeriesConfig & { value: number | null }>>(
     () => legendSeries.map((seriesItem) => {
@@ -1119,7 +1122,7 @@ function EventChartComponent({
               data={chartData}
               series={legendSeries}
               width={chartWidth}
-              height={332}
+              height={chartHeightOverride ?? 332}
               margin={{ top: 30, right: 40, bottom: 52, left: 0 }}
               dataSignature={chartScopeKey}
               onCursorDataChange={handleCursorDataChange}

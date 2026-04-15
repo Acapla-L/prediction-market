@@ -23,7 +23,10 @@ export default async function HomeV2Sidebar({ trending, fresh }: HomeV2SidebarPr
 
   return (
     <aside className="flex flex-col gap-3 lg:gap-4">
-      <SidebarMarketplaceCard />
+      {/* Marketplace card lives here on desktop; on mobile it's rendered under the hero in page.tsx. */}
+      <div className="hidden lg:block">
+        <SidebarMarketplaceCard />
+      </div>
       <SidebarEventListCard title={t('Trending')} events={trending} />
       <SidebarStaticListCard title={t('Sports Futures')} rows={futuresRows} />
       <SidebarEventListCard title={t('New Markets')} events={fresh} />
