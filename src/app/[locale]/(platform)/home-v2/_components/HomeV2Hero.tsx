@@ -1,5 +1,6 @@
 'use client'
 
+import type { HeroChartEntry } from '@/app/[locale]/(platform)/home-v2/_data/fetchHeroChartData'
 import type { Event } from '@/types'
 import useEmblaCarousel from 'embla-carousel-react'
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
@@ -9,9 +10,10 @@ import { Card } from '@/components/ui/card'
 
 interface HomeV2HeroProps {
   events: Event[]
+  chartData: Record<string, HeroChartEntry>
 }
 
-export default function HomeV2Hero({ events }: HomeV2HeroProps) {
+export default function HomeV2Hero({ events, chartData }: HomeV2HeroProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel({
     loop: true,
     align: 'start',
@@ -117,6 +119,7 @@ export default function HomeV2Hero({ events }: HomeV2HeroProps) {
               key={event.id}
               event={event}
               isActive={index === activeIndex}
+              chartEntry={chartData[event.id] ?? null}
             />
           ))}
         </div>

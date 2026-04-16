@@ -26,10 +26,11 @@ export async function fetchFeaturedEvents(locale: SupportedLocale): Promise<Even
     status: 'active',
   })
 
-  // Hero uses EventChart (CLOB price history). Exclude events that would use
-  // EventLiveSeriesChart instead — their internal markers are tuned to a 332px
-  // chart and don't scale cleanly into a compact hero slide.
-  const heroEligible = filtered.filter(event => !event.has_live_chart)
+  // Only events with has_live_chart have real chart data on this platform.
+  // Non-live-chart events have $0 CLOB trading volume — their price history
+  // endpoints return empty arrays. Live-chart events use Chainlink/Massive
+  // oracle price feeds which always have data.
+  const heroEligible = filtered.filter(event => event.has_live_chart)
 
   return heroEligible.slice(0, FEATURED_COUNT)
 }

@@ -11,6 +11,7 @@ import SidebarMarketplaceCard from '@/app/[locale]/(platform)/home-v2/_component
 import { HOME_V2_CATEGORIES } from '@/app/[locale]/(platform)/home-v2/_config/categories'
 import { fetchCategoryEvents } from '@/app/[locale]/(platform)/home-v2/_data/fetchCategoryEvents'
 import { fetchFeaturedEvents } from '@/app/[locale]/(platform)/home-v2/_data/fetchFeaturedEvents'
+import { fetchHeroChartData } from '@/app/[locale]/(platform)/home-v2/_data/fetchHeroChartData'
 import { fetchSidebarLists } from '@/app/[locale]/(platform)/home-v2/_data/fetchSidebarLists'
 import { cacheTags } from '@/lib/cache-tags'
 
@@ -34,6 +35,7 @@ export default async function HomeV2Page({ params }: HomeV2PageProps) {
     fetchSidebarLists(resolvedLocale),
     fetchCategoryEvents(HOME_V2_CATEGORIES, resolvedLocale),
   ])
+  const heroChartData = await fetchHeroChartData(featuredEvents)
 
   const currentTimestamp = getServerCurrentTimestamp()
 
@@ -49,7 +51,7 @@ export default async function HomeV2Page({ params }: HomeV2PageProps) {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-6">
         {/* LEFT COLUMN */}
         <div className="flex min-w-0 flex-col gap-6 lg:gap-8">
-          <HomeV2Hero events={featuredEvents} />
+          <HomeV2Hero events={featuredEvents} chartData={heroChartData} />
 
           {/* Marketplace card appears under the hero on mobile; on desktop it lives in the sidebar. */}
           <div className="lg:hidden">
