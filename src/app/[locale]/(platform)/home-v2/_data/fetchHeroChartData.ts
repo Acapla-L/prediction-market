@@ -20,8 +20,8 @@ interface PriceReferenceHistoryRow {
 export const HERO_CHART_SERIES_KEY = 'price'
 
 const HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000
-const HISTORY_INTERVAL = '5m'
-const HISTORY_LIMIT = 288
+const HISTORY_INTERVAL = '15m'
+const HISTORY_LIMIT = 96
 
 let seriesMapCache: Map<string, SeriesMapItem> | null = null
 let seriesMapCachedAt = 0
