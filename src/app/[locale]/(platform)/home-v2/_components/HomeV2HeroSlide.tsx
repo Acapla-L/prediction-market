@@ -6,7 +6,6 @@ import type { PredictionChartCursorSnapshot, SeriesConfig } from '@/types/Predic
 import dynamic from 'next/dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import HomeV2HeroChartSkeleton from '@/app/[locale]/(platform)/home-v2/_components/HomeV2HeroChartSkeleton'
-import { HERO_CHART_SERIES_KEY } from '@/app/[locale]/(platform)/home-v2/_data/fetchHeroChartData'
 import AppLink from '@/components/AppLink'
 import { Badge } from '@/components/ui/badge'
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -14,6 +13,11 @@ import { OUTCOME_INDEX } from '@/lib/constants'
 import { resolveEventPagePath } from '@/lib/events-routing'
 import { formatVolume } from '@/lib/formatters'
 import { buildChanceByMarket } from '@/lib/market-chance'
+
+// Inlined — must match CHART_SERIES_KEY in fetchHeroChartData.ts.
+// Cannot import from that file because it pulls EventRepository (drizzle,
+// 'use cache', 'server-only') into the client bundle, breaking Turbopack.
+const CHART_SERIES_KEY = 'price'
 
 // PredictionChart is the pure Visx renderer used by every chart on the platform.
 // We render it directly with pre-fetched server-side data — no client-side hooks,
@@ -91,7 +95,7 @@ export default function HomeV2HeroSlide({ event, isActive, chartEntry }: HomeV2H
   const lineColor = chartEntry?.lineColor ?? 'var(--primary)'
 
   const series = useMemo<SeriesConfig[]>(
-    () => [{ key: HERO_CHART_SERIES_KEY, name: event.title, color: lineColor }],
+    () => [{ key: CHART_SERIES_KEY, name: event.title, color: lineColor }],
     [event.title, lineColor],
   )
 
@@ -99,7 +103,7 @@ export default function HomeV2HeroSlide({ event, isActive, chartEntry }: HomeV2H
     if (!snapshot) {
       return null
     }
-    const raw = snapshot.values[HERO_CHART_SERIES_KEY]
+    const raw = snapshot.values[CHART_SERIES_KEY]
     return typeof raw === 'number' ? formatChartPrice(raw) : null
   }, [snapshot])
 
