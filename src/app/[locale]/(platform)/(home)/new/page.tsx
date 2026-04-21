@@ -1,5 +1,6 @@
+'use cache'
+
 import type { Metadata } from 'next'
-import { connection } from 'next/server'
 import { setRequestLocale } from 'next-intl/server'
 import HomeClient from '@/app/[locale]/(platform)/(home)/_components/HomeClient'
 import { getNewPageSeoTitle } from '@/lib/platform-routing'
@@ -11,7 +12,6 @@ export const metadata: Metadata = {
 }
 
 export default async function NewPage({ params }: PageProps<'/[locale]/new'>) {
-  await connection()
   const { locale } = await params
   setRequestLocale(locale)
 
@@ -19,7 +19,7 @@ export default async function NewPage({ params }: PageProps<'/[locale]/new'>) {
     <main className="container grid gap-4 py-4">
       <HomeClient
         initialEvents={[]}
-        initialCurrentTimestamp={Date.now()}
+        initialCurrentTimestamp={null}
         initialTag={MAIN_TAG_SLUG}
         initialMainTag={MAIN_TAG_SLUG}
       />
