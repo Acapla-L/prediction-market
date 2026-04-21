@@ -1,7 +1,4 @@
-import { NextResponse } from 'next/server'
-
-export const dynamic = 'force-dynamic'
-export const runtime = 'nodejs'
+import { connection, NextResponse } from 'next/server'
 
 interface ProbeResult {
   url: string
@@ -65,6 +62,7 @@ async function probe(url: string, capturePreview = false): Promise<ProbeResult> 
 }
 
 export async function GET(): Promise<Response> {
+  await connection()
   const vercelRegion = process.env.VERCEL_REGION ?? null
   const vercelEnv = process.env.VERCEL_ENV ?? null
 
