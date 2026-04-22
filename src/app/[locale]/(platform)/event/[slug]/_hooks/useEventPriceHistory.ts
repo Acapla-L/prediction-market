@@ -3,6 +3,14 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { OUTCOME_INDEX } from '@/lib/constants'
 
+// Inline constant — MUST NOT import from '@/lib/polymarket/constants' because
+// that module transitively carries `'server-only'` concerns (it is imported
+// by `fifa-overlay.ts` which imports `client.ts` which imports `server-only`).
+// This hook is used by `'use client'` components, so any runtime import from
+// the polymarket server chain would break the Turbopack build. Keep in sync
+// with `FIFA_EVENT_SLUG` at `platform/src/lib/polymarket/constants.ts`.
+const FIFA_EVENT_SLUG_INLINE = '2026-fifa-world-cup-winner-595' as const
+
 export type TimeRange = '1H' | '6H' | '1D' | '1W' | '1M' | 'ALL'
 
 interface PriceHistoryPoint {
@@ -17,6 +25,54 @@ interface PriceHistoryResponse {
 export interface MarketTokenTarget {
   conditionId: string
   tokenId: string
+  /**
+   * Which CLOB the `tokenId` belongs to. Set by `buildMarketTargets` based
+   * on whether the source outcome carried `polymarket_token_id` (set by the
+   * FIFA overlay guard clause) or only `token_id` (the Kuest default).
+   * Routes the history fetch to the right endpoint via
+   * `resolvePriceHistoryEndpoint`.
+   */
+  source: 'polymarket' | 'kuest'
+}
+
+export interface PriceHistoryEndpoint {
+  baseUrl: string
+  tokenParamName: 'market' | 'token'
+  source: 'kuest-clob' | 'polymarket-proxy'
+}
+
+/**
+ * Decide which backend to hit for price history based on the parent event's
+ * slug and the polymarket-vs-kuest source of each target.
+ *
+ * Rules:
+ *   - Non-FIFA event → Kuest CLOB (status quo).
+ *   - FIFA event + at least one target with `source: 'polymarket'` → our
+ *     server-side proxy at `/api/polymarket/prices-history`.
+ *   - FIFA event + zero polymarket targets (cold-cache fallback per
+ *     Revision 4 of the plan) → Kuest CLOB. Preserves the "never worse
+ *     than today" invariant when the overlay was empty.
+ */
+export function resolvePriceHistoryEndpoint(
+  eventSlug: string,
+  targets: MarketTokenTarget[],
+): PriceHistoryEndpoint {
+  const hasPolymarketTarget = targets.some(target => target.source === 'polymarket')
+  const usePolymarketProxy = eventSlug === FIFA_EVENT_SLUG_INLINE && hasPolymarketTarget
+
+  if (usePolymarketProxy) {
+    return {
+      baseUrl: '/api/polymarket/prices-history',
+      tokenParamName: 'token',
+      source: 'polymarket-proxy',
+    }
+  }
+
+  return {
+    baseUrl: `${process.env.CLOB_URL!}/prices-history`,
+    tokenParamName: 'market',
+    source: 'kuest-clob',
+  }
 }
 
 interface RangeFilters {
@@ -153,17 +209,22 @@ function buildTimeRangeFilters(range: TimeRange, createdAt: string, resolvedAt?:
   }
 }
 
-async function fetchTokenPriceHistory(tokenId: string, filters: RangeFilters): Promise<PriceHistoryPoint[]> {
-  const url = new URL(`${process.env.CLOB_URL!}/prices-history`)
-  url.searchParams.set('market', tokenId)
+async function fetchTokenPriceHistory(
+  tokenId: string,
+  filters: RangeFilters,
+  endpoint: PriceHistoryEndpoint,
+): Promise<PriceHistoryPoint[]> {
+  const searchParams = new URLSearchParams()
+  searchParams.set(endpoint.tokenParamName, tokenId)
 
   Object.entries(filters).forEach(([key, value]) => {
     if (value !== undefined) {
-      url.searchParams.set(key, value)
+      searchParams.set(key, value)
     }
   })
 
-  const response = await fetch(url.toString())
+  const url = `${endpoint.baseUrl}?${searchParams.toString()}`
+  const response = await fetch(url)
   if (!response.ok) {
     throw new Error('Failed to fetch price history')
   }
@@ -178,6 +239,7 @@ async function fetchTokenPriceHistory(tokenId: string, filters: RangeFilters): P
 }
 
 async function fetchEventPriceHistory(
+  eventSlug: string,
   targets: MarketTokenTarget[],
   range: TimeRange,
   eventCreatedAt: string,
@@ -188,10 +250,11 @@ async function fetchEventPriceHistory(
   }
 
   const filters = buildTimeRangeFilters(range, eventCreatedAt, eventResolvedAt)
+  const endpoint = resolvePriceHistoryEndpoint(eventSlug, targets)
   const entries = await Promise.all(
     targets.map(async (target) => {
       try {
-        const history = await fetchTokenPriceHistory(target.tokenId, filters)
+        const history = await fetchTokenPriceHistory(target.tokenId, filters, endpoint)
         return [target.conditionId, history] as const
       }
       catch {
@@ -306,6 +369,13 @@ function clipNormalizedHistoryToResolvedAt(
 
 interface UseEventPriceHistoryParams {
   eventId: string
+  /**
+   * Parent event's slug. Used to decide whether to route the history fetch
+   * to the Polymarket proxy (FIFA event only) or to Kuest CLOB (every other
+   * event). The slug is not part of the React Query key since `eventId` is
+   * 1:1 with the slug in practice.
+   */
+  eventSlug: string
   range: TimeRange
   targets: MarketTokenTarget[]
   eventCreatedAt: string
@@ -314,6 +384,7 @@ interface UseEventPriceHistoryParams {
 
 export function useEventPriceHistory({
   eventId,
+  eventSlug,
   range,
   targets,
   eventCreatedAt,
@@ -326,7 +397,7 @@ export function useEventPriceHistory({
 
   const { data: priceHistoryByMarket } = useQuery({
     queryKey: ['event-price-history', eventId, range, tokenSignature, eventResolvedAt ?? ''],
-    queryFn: () => fetchEventPriceHistory(targets, range, eventCreatedAt, eventResolvedAt),
+    queryFn: () => fetchEventPriceHistory(eventSlug, targets, range, eventCreatedAt, eventResolvedAt),
     enabled: targets.length > 0,
     staleTime: PRICE_REFRESH_INTERVAL_MS,
     gcTime: PRICE_REFRESH_INTERVAL_MS,
@@ -355,12 +426,28 @@ export function buildMarketTargets(
     .map((market) => {
       const matchingOutcome = market.outcomes.find(outcome => outcome.outcome_index === outcomeIndex)
         ?? market.outcomes[0]
-      if (!matchingOutcome?.token_id) {
+      if (!matchingOutcome) {
+        return null
+      }
+      // Prefer polymarket_token_id when present (set by the FIFA overlay guard
+      // clause in event-page-data.ts). Falls back to the Kuest token_id for
+      // every other event and for FIFA markets that didn't get a matching
+      // overlay entry (cold cache + upstream failure — Revision 4 fallback).
+      const polymarketToken = matchingOutcome.polymarket_token_id
+      if (polymarketToken) {
+        return {
+          conditionId: market.condition_id,
+          tokenId: polymarketToken,
+          source: 'polymarket' as const,
+        }
+      }
+      if (!matchingOutcome.token_id) {
         return null
       }
       return {
         conditionId: market.condition_id,
         tokenId: matchingOutcome.token_id,
+        source: 'kuest' as const,
       }
     })
     .filter((target): target is MarketTokenTarget => target !== null)

@@ -40,6 +40,7 @@ interface MarketOutcomeGraphProps {
   allMarkets: Market[]
   currentTimestamp: number | null
   eventCreatedAt: string
+  eventSlug: string
   isMobile: boolean
 }
 
@@ -56,6 +57,7 @@ export default function MarketOutcomeGraph({
   allMarkets,
   currentTimestamp,
   eventCreatedAt,
+  eventSlug,
   isMobile,
 }: MarketOutcomeGraphProps) {
   const t = useExtracted()
@@ -111,6 +113,7 @@ export default function MarketOutcomeGraph({
     normalizedHistory,
   } = useEventPriceHistory({
     eventId: market.event_id,
+    eventSlug,
     range: activeTimeRange,
     targets: marketTargets,
     eventCreatedAt,
