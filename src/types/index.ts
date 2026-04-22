@@ -146,6 +146,16 @@ export interface Outcome {
   sell_price?: number
   created_at: string
   updated_at: string
+  /**
+   * Polymarket CLOB token ID, set by the FIFA overlay guard clause in
+   * `event-page-data.ts` for event slug `2026-fifa-world-cup-winner-595`
+   * (see `docs/plans/fifa-polymarket-overlay-implementation-plan.md`).
+   * Never written to the DB. Always `undefined`/`null` for non-FIFA events.
+   * Consumed by `useEventPriceHistory` / `buildMarketTargets` to route
+   * the chart history fetch to Polymarket while leaving `token_id`
+   * (the Kuest token) intact for every Kuest order / wallet code path.
+   */
+  polymarket_token_id?: string | null
 }
 
 interface Condition {
