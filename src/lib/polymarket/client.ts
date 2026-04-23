@@ -53,9 +53,12 @@ const GammaMarketSchema = z.object({
   groupItemTitle: z.string(),
   active: z.boolean(),
   closed: z.boolean(),
-  outcomes: JsonStringTuple,
-  outcomePrices: JsonStringNumberTuple,
-  clobTokenIds: JsonStringTuple,
+  // Polymarket returns placeholder markets for future qualifying teams
+  // (Team AM, Team AI, Other) with these fields undefined. Optional here;
+  // filtered in buildFifaOverlay.
+  outcomes: JsonStringTuple.optional(),
+  outcomePrices: JsonStringNumberTuple.optional(),
+  clobTokenIds: JsonStringTuple.optional(),
   bestBid: z.number().nullable().default(null),
   bestAsk: z.number().nullable().default(null),
   lastTradePrice: z.number().nullable().default(null),

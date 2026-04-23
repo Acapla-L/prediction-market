@@ -49,11 +49,22 @@ export async function buildFifaOverlay(): Promise<FifaOverlayResult> {
   }
 
   const marketsByCountry: Record<string, FifaOverlayMarket> = {}
+  let skippedPlaceholderCount = 0
+  let overlaidCount = 0
   for (const m of gammaEvent.markets) {
     // Filter out Team AM/AI placeholders (active=false) and eliminated teams
     // like Italy (closed=true). Matches the invariant enforced by the live
     // Gamma response documented in Section 1 of the investigation.
     if (!m.active || m.closed) {
+      skippedPlaceholderCount += 1
+      continue
+    }
+    // Skip placeholder markets (future qualifying teams — Team AM, Team AI,
+    // Other). Real active markets always have these fields. Defense-in-depth
+    // against a future Polymarket shape change where an active-but-unpriced
+    // market appears; without this guard the destructure below would throw.
+    if (!m.outcomePrices || !m.clobTokenIds) {
+      skippedPlaceholderCount += 1
       continue
     }
 
@@ -70,7 +81,14 @@ export async function buildFifaOverlay(): Promise<FifaOverlayResult> {
       yesTokenId,
       noTokenId,
     }
+    overlaidCount += 1
   }
+
+  // One info log per uncached fetch. The outer `unstable_cache` (30s TTL)
+  // suppresses this on warm hits so the log stream stays readable.
+  console.info(
+    `[fifa-overlay] skipped ${skippedPlaceholderCount} placeholder markets, overlaid ${overlaidCount} active markets`,
+  )
 
   return { marketsByCountry, stale: false, lastUpdatedAt: now }
 }

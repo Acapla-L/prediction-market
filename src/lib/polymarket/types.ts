@@ -12,12 +12,17 @@ export interface PolymarketMarket {
   groupItemTitle: string
   active: boolean
   closed: boolean
-  /** Parsed from JSON-encoded string in the raw Gamma response. */
-  outcomes: readonly [string, string]
-  /** Parsed from JSON-encoded string + coerced to numbers. */
-  outcomePrices: readonly [number, number]
-  /** Parsed from JSON-encoded string. */
-  clobTokenIds: readonly [string, string]
+  /**
+   * Parsed from JSON-encoded string in the raw Gamma response.
+   * Optional: Polymarket returns placeholder markets for future qualifying
+   * teams (Team AM, Team AI, Other) with these fields undefined. Filtered
+   * in `buildFifaOverlay`.
+   */
+  outcomes?: readonly [string, string]
+  /** Parsed from JSON-encoded string + coerced to numbers. Optional (see `outcomes`). */
+  outcomePrices?: readonly [number, number]
+  /** Parsed from JSON-encoded string. Optional (see `outcomes`). */
+  clobTokenIds?: readonly [string, string]
   bestBid: number | null
   bestAsk: number | null
   lastTradePrice: number | null

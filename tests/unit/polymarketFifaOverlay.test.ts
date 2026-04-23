@@ -28,6 +28,29 @@ function makeMarket(overrides: Partial<PolymarketMarket> = {}): PolymarketMarket
   }
 }
 
+/**
+ * Build a placeholder market matching the EXACT shape captured from live
+ * Gamma on 2026-04-22 (Team AM) — active=false, closed=false, with the three
+ * tuple fields undefined. Used for the regression test that proves the
+ * overlay skips these markets and logs the skip count.
+ */
+function makePlaceholderMarket(overrides: Partial<PolymarketMarket> = {}): PolymarketMarket {
+  return {
+    id: '558992',
+    conditionId: '0x74885870fd540aa9881baac1a99c7a205f80556baba91e1f44fb80178ec46830',
+    groupItemTitle: 'Team AM',
+    active: false,
+    closed: false,
+    // outcomes, outcomePrices, clobTokenIds deliberately undefined (matches real shape)
+    bestBid: 0,
+    bestAsk: 1,
+    lastTradePrice: 0,
+    volume: 0,
+    volume24hr: 0,
+    ...overrides,
+  }
+}
+
 describe('buildFifaOverlay — upstream failure path', () => {
   beforeEach(() => {
     mockedFetch.mockReset()
@@ -89,6 +112,54 @@ describe('buildFifaOverlay — filtering', () => {
     const result = await buildFifaOverlay()
     expect(result.marketsByCountry.Spain).toBeDefined()
     expect(result.marketsByCountry.Spain?.closed).toBe(false)
+  })
+
+  it('skips placeholder markets and overlays only active priced markets (regression: 2026-04-22 production bug)', async () => {
+    // Mixed input matching the real 2026-04-22 Gamma shape: 2 real active
+    // markets (Spain, France) + 1 placeholder (Team AM with undefined
+    // outcomePrices/outcomes/clobTokenIds). Before the placeholder fix the
+    // Zod schema rejected the whole response; after the fix the client
+    // returns all 3 and the overlay skips the placeholder here.
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+    try {
+      mockedFetch.mockResolvedValueOnce({
+        slug: '2026-fifa-world-cup-winner-595',
+        markets: [
+          makeMarket({
+            groupItemTitle: 'Spain',
+            outcomePrices: [0.16, 0.84],
+            clobTokenIds: ['spain-yes', 'spain-no'],
+          }),
+          makePlaceholderMarket({ groupItemTitle: 'Team AM' }),
+          makeMarket({
+            groupItemTitle: 'France',
+            outcomePrices: [0.166, 0.834],
+            clobTokenIds: ['france-yes', 'france-no'],
+          }),
+        ],
+      })
+
+      const result = await buildFifaOverlay()
+
+      // Exactly 2 overlay entries — placeholder filtered out
+      expect(Object.keys(result.marketsByCountry)).toHaveLength(2)
+      expect(result.marketsByCountry.Spain).toBeDefined()
+      expect(result.marketsByCountry.France).toBeDefined()
+      expect(result.marketsByCountry['Team AM']).toBeUndefined()
+
+      // Spain prices stitched from real shape
+      expect(result.marketsByCountry.Spain?.yesPrice).toBe(0.16)
+      expect(result.marketsByCountry.Spain?.yesTokenId).toBe('spain-yes')
+
+      // console.info called once with skip count = 1 and overlaid count = 2
+      expect(infoSpy).toHaveBeenCalledTimes(1)
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('skipped 1 placeholder markets, overlaid 2 active markets'),
+      )
+    }
+    finally {
+      infoSpy.mockRestore()
+    }
   })
 })
 

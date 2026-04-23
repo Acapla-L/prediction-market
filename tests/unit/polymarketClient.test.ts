@@ -116,6 +116,69 @@ describe('polymarket client — fetchFifaGammaEvent', () => {
     expect(result).toBeNull()
   })
 
+  it('accepts response containing placeholder markets with undefined outcomePrices/outcomes/clobTokenIds (regression: 2026-04-22 production bug)', async () => {
+    // Fixture built from the EXACT shape of a real placeholder market
+    // captured from live Gamma on 2026-04-22 (Team AM). Polymarket returns
+    // these entries for future qualifying teams. Before the placeholder fix,
+    // the required outcomePrices tuple failed Zod and poisoned the entire
+    // response, causing fetchFifaGammaEvent to return null in production
+    // and the FIFA overlay to silently no-op.
+    const realPlaceholder = {
+      id: '558992',
+      conditionId: '0x74885870fd540aa9881baac1a99c7a205f80556baba91e1f44fb80178ec46830',
+      groupItemTitle: 'Team AM',
+      active: false,
+      closed: false,
+      outcomes: JSON.stringify(['Yes', 'No']),
+      // NOTE: outcomePrices is intentionally absent — this is the real Gamma shape
+      clobTokenIds: JSON.stringify([
+        '86040916914507857269605207059811736324691981407025555024902462000511476766233',
+        '76131146098126828471552637113581456291047249523223872964238917671303838166693',
+      ]),
+      bestBid: 0,
+      bestAsk: 1,
+      lastTradePrice: 0,
+      volume: '0',
+      volume24hr: 0,
+    }
+    const realActiveMarket = {
+      id: '558934',
+      conditionId: '0x7976b8dbacf9077eb1453a62bcefd6ab2df199acd28aad276ff0d920d6992892',
+      groupItemTitle: 'Spain',
+      active: true,
+      closed: false,
+      outcomes: JSON.stringify(['Yes', 'No']),
+      outcomePrices: JSON.stringify(['0.16', '0.84']),
+      clobTokenIds: JSON.stringify([
+        '4394372887385518214471608448209527405727552777602031099972143344338178308080',
+        '112680630004798425069810935278212000865453267506345451433803052322987302357330',
+      ]),
+      bestBid: 0.159,
+      bestAsk: 0.161,
+      lastTradePrice: 0.159,
+      volume: '15538115.50342224',
+      volume24hr: 346706.87,
+    }
+
+    // Real production shape: 12 placeholders interleaved with 48 real markets.
+    // We reproduce with 2 real + 1 placeholder to keep the fixture readable.
+    const responseWithPlaceholders = [{
+      slug: '2026-fifa-world-cup-winner-595',
+      markets: [realActiveMarket, realPlaceholder, realActiveMarket],
+    }]
+    fetchSpy.mockResolvedValueOnce(mockJsonResponse(responseWithPlaceholders))
+
+    const result = await fetchFifaGammaEvent()
+    // Before fix: result would be null because Zod rejected the whole response.
+    // After fix: all 3 markets parse, placeholder has outcomePrices === undefined.
+    expect(result).not.toBeNull()
+    expect(result?.markets).toHaveLength(3)
+    expect(result?.markets[1]?.groupItemTitle).toBe('Team AM')
+    expect(result?.markets[1]?.outcomePrices).toBeUndefined()
+    expect(result?.markets[1]?.outcomes).toEqual(['Yes', 'No'])
+    expect(result?.markets[0]?.outcomePrices).toEqual([0.16, 0.84])
+  })
+
   it('returns null when a market has a malformed outcomes JSON string', async () => {
     // The JSON.parse inside the preprocess will throw — outer safeParse returns failure
     fetchSpy.mockResolvedValueOnce(mockJsonResponse([
