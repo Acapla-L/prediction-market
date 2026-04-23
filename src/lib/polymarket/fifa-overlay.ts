@@ -80,12 +80,24 @@ export async function buildFifaOverlay(): Promise<FifaOverlayResult> {
  * giving the page a live feel. Tag `polymarket:event:<slug>` so any future
  * admin-side revalidation can nuke this cache independently of the
  * event-page's own cache tag (`cacheTags.event(slug)`).
+ *
+ * The cache key includes `POLYMARKET_GAMMA_BASE` so a future env-var swap
+ * (e.g., routing Gamma through a Cloudflare Worker proxy) does not serve
+ * the cached result from the previous origin. Regression test lives at
+ * `tests/unit/polymarketFifaOverlayCacheKey.test.ts` — code-reviewer
+ * finding I-1 (2026-04-22).
  */
-export const getFifaOverlay = unstable_cache(
-  buildFifaOverlay,
-  ['polymarket-fifa-overlay-v1'],
-  {
-    revalidate: 30,
-    tags: ['polymarket:event:2026-fifa-world-cup-winner-595'],
-  },
-)
+const DEFAULT_GAMMA_KEY_SENTINEL = '__default__'
+
+export function getFifaOverlay(): Promise<FifaOverlayResult> {
+  const gammaBaseForKey = process.env.POLYMARKET_GAMMA_BASE || DEFAULT_GAMMA_KEY_SENTINEL
+  const cached = unstable_cache(
+    buildFifaOverlay,
+    ['polymarket-fifa-overlay-v1', gammaBaseForKey],
+    {
+      revalidate: 30,
+      tags: ['polymarket:event:2026-fifa-world-cup-winner-595'],
+    },
+  )
+  return cached()
+}
