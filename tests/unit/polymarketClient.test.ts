@@ -259,4 +259,28 @@ describe('polymarket client — fetchPolymarketPriceHistory', () => {
     const result = await fetchPolymarketPriceHistory({ token: 't1', interval: '1d' })
     expect(result).toBeNull()
   })
+
+  it('omits interval from upstream URL when undefined (ALL-range fix — session 026)', async () => {
+    // Regression: the ALL-range chart query doesn't send `interval`. The URL
+    // builder must skip the param entirely (NOT send `interval=undefined`).
+    // Polymarket CLOB returns real history when given fidelity + startTs +
+    // endTs alone — no interval needed.
+    fetchSpy.mockResolvedValueOnce(mockJsonResponse(HISTORY_OK_BODY))
+
+    await fetchPolymarketPriceHistory({
+      token: 'polymarket-spain-yes',
+      fidelity: 180,
+      startTs: 1776287599,
+      endTs: 1776912475,
+    })
+
+    const urlArg = fetchSpy.mock.calls[0]?.[0] as string
+    expect(urlArg).toContain('market=polymarket-spain-yes')
+    expect(urlArg).toContain('fidelity=180')
+    expect(urlArg).toContain('startTs=1776287599')
+    expect(urlArg).toContain('endTs=1776912475')
+    // Critical: no interval= at all in the URL.
+    expect(urlArg).not.toContain('interval=')
+    expect(urlArg).not.toContain('interval=undefined')
+  })
 })

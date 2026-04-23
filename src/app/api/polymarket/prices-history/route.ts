@@ -14,7 +14,10 @@ const INTERVAL_VALUES = ['1h', '6h', '1d', '1w', '1m', 'max'] as const
 
 const QuerySchema = z.object({
   token: z.string().min(1),
-  interval: z.enum(INTERVAL_VALUES),
+  // Optional because the client hook omits interval for the ALL time range.
+  // When absent, we omit it from the upstream CLOB query and let Polymarket
+  // use its default granularity (driven by fidelity + startTs/endTs bounds).
+  interval: z.enum(INTERVAL_VALUES).optional(),
   fidelity: z.coerce.number().int().positive().optional(),
   startTs: z.coerce.number().int().nonnegative().optional(),
   endTs: z.coerce.number().int().nonnegative().optional(),
@@ -42,7 +45,7 @@ function fetchAndCacheHistory(params: PriceHistoryParams) {
     [
       'polymarket-prices-history-v1',
       token,
-      interval,
+      interval ?? '',
       String(fidelity ?? ''),
       String(startTs ?? ''),
       String(endTs ?? ''),

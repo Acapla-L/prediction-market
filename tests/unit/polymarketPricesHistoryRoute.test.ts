@@ -126,4 +126,47 @@ describe('/api/polymarket/prices-history — GET', () => {
       endTs: undefined,
     })
   })
+
+  it('accepts query without interval parameter (ALL-range fix — session 026)', async () => {
+    // Regression: the client hook's buildTimeRangeFilters omits `interval`
+    // when the user picks the ALL range (it sends fidelity + startTs + endTs
+    // instead). Before session 026 the schema required interval; every
+    // ALL-range FIFA chart call returned 400. Schema now marks it optional.
+    mockedFetch.mockResolvedValueOnce({ history: [{ t: 1, p: 0.16 }] })
+
+    const res = await GET(makeRequest({
+      token: 'polymarket-spain-yes',
+      fidelity: 180,
+      startTs: 1776287599,
+      endTs: 1776912475,
+    }))
+
+    expect(res.status).toBe(200)
+    expect(mockedFetch).toHaveBeenCalledWith({
+      token: 'polymarket-spain-yes',
+      interval: undefined,
+      fidelity: 180,
+      startTs: 1776287599,
+      endTs: 1776912475,
+    })
+  })
+
+  it('forwards interval: undefined to the client fetcher so the URL builder can omit the param', async () => {
+    // The route does not substitute a default — the downstream URL builder
+    // (fetchPolymarketPriceHistory in client.ts) is responsible for omitting
+    // the query-string key when interval is undefined. This test locks the
+    // contract between the route and the client library.
+    mockedFetch.mockResolvedValueOnce({ history: [] })
+
+    await GET(makeRequest({
+      token: 't1',
+      startTs: 100,
+      endTs: 200,
+      fidelity: 60,
+    }))
+
+    expect(mockedFetch).toHaveBeenCalledTimes(1)
+    const callArgs = mockedFetch.mock.calls[0]?.[0]
+    expect(callArgs?.interval).toBeUndefined()
+  })
 })

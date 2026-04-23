@@ -1432,10 +1432,10 @@ export function SportsGameGraph({
       .map(target => ({
         conditionId: target.key,
         tokenId: target.tokenId,
-        // Sports games cards always draw from Kuest's CLOB (no Polymarket
-        // overlay applies to game-level markets — the FIFA overlay is scoped
-        // to the single World Cup Winner event at event-page-data.ts).
-        source: 'kuest' as const,
+        // Sports games cards are always Kuest-sourced — no Polymarket overlay
+        // applies to game-level markets (the FIFA overlay is scoped to the
+        // single World Cup Winner event at event-page-data.ts). `polymarketTokenId`
+        // stays undefined, so resolvePriceHistoryEndpoint routes to Kuest CLOB.
       })),
     [graphSeriesTargets],
   )

@@ -185,7 +185,8 @@ export async function fetchFifaGammaEvent(): Promise<PolymarketEvent | null> {
 
 export interface PriceHistoryParams {
   token: string
-  interval: string
+  /** Optional. Omitted from the upstream URL when undefined. */
+  interval?: string
   fidelity?: number
   startTs?: number
   endTs?: number
@@ -199,10 +200,10 @@ export interface PriceHistoryParams {
 export async function fetchPolymarketPriceHistory(
   params: PriceHistoryParams,
 ): Promise<PolymarketPriceHistoryResponse | null> {
-  const qs = new URLSearchParams({
-    market: params.token,
-    interval: params.interval,
-  })
+  const qs = new URLSearchParams({ market: params.token })
+  if (params.interval) {
+    qs.set('interval', params.interval)
+  }
   if (params.fidelity !== undefined) {
     qs.set('fidelity', String(params.fidelity))
   }

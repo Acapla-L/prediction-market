@@ -1,97 +1,12 @@
-import type { Market, Outcome } from '@/types'
 import { describe, expect, it } from 'vitest'
-import {
-  buildMarketTargets,
-  resolvePriceHistoryEndpoint,
-} from '@/app/[locale]/(platform)/event/[slug]/_hooks/useEventPriceHistory'
-import { OUTCOME_INDEX } from '@/lib/constants'
+import { resolvePriceHistoryEndpoint } from '@/app/[locale]/(platform)/event/[slug]/_hooks/useEventPriceHistory'
 
 const FIFA_SLUG = '2026-fifa-world-cup-winner-595'
-
-function makeOutcome(partial: Partial<Outcome> = {}): Outcome {
-  return {
-    condition_id: 'cond-x',
-    outcome_text: 'Yes',
-    outcome_index: 0,
-    token_id: 'kuest-token',
-    is_winning_outcome: false,
-    created_at: '2026-04-22T00:00:00Z',
-    updated_at: '2026-04-22T00:00:00Z',
-    ...partial,
-  }
-}
-
-function makeMarket(partial: Partial<Market> = {}): Market {
-  return {
-    condition_id: 'cond-x',
-    event_id: 'event-1',
-    title: 'Will X win?',
-    slug: 'will-x-win',
-    outcomes: [
-      makeOutcome({ outcome_index: 0, token_id: 'kuest-yes' }),
-      makeOutcome({ outcome_index: 1, token_id: 'kuest-no' }),
-    ],
-    ...partial,
-  } as Market
-}
-
-describe('buildMarketTargets — source marker + polymarket preference', () => {
-  it('prefers polymarket_token_id when present and marks source=polymarket', () => {
-    const markets: Market[] = [makeMarket({
-      outcomes: [
-        makeOutcome({
-          outcome_index: 0,
-          token_id: 'kuest-yes-KEEP',
-          polymarket_token_id: 'polymarket-yes',
-        }),
-      ],
-    })]
-    const targets = buildMarketTargets(markets, OUTCOME_INDEX.YES)
-    expect(targets).toHaveLength(1)
-    expect(targets[0]?.tokenId).toBe('polymarket-yes')
-    expect(targets[0]?.source).toBe('polymarket')
-  })
-
-  it('falls back to token_id when polymarket_token_id is absent and marks source=kuest', () => {
-    const markets: Market[] = [makeMarket({
-      outcomes: [
-        makeOutcome({ outcome_index: 0, token_id: 'kuest-only' }),
-      ],
-    })]
-    const targets = buildMarketTargets(markets, OUTCOME_INDEX.YES)
-    expect(targets).toHaveLength(1)
-    expect(targets[0]?.tokenId).toBe('kuest-only')
-    expect(targets[0]?.source).toBe('kuest')
-  })
-
-  it('falls back to token_id when polymarket_token_id is explicitly null', () => {
-    const markets: Market[] = [makeMarket({
-      outcomes: [
-        makeOutcome({ outcome_index: 0, token_id: 'kuest-only', polymarket_token_id: null }),
-      ],
-    })]
-    const targets = buildMarketTargets(markets, OUTCOME_INDEX.YES)
-    expect(targets[0]?.tokenId).toBe('kuest-only')
-    expect(targets[0]?.source).toBe('kuest')
-  })
-
-  it('picks the NO outcome when outcomeIndex=NO', () => {
-    const markets: Market[] = [makeMarket({
-      outcomes: [
-        makeOutcome({ outcome_index: 0, token_id: 'kuest-yes', polymarket_token_id: 'polymarket-yes' }),
-        makeOutcome({ outcome_index: 1, token_id: 'kuest-no', polymarket_token_id: 'polymarket-no' }),
-      ],
-    })]
-    const targets = buildMarketTargets(markets, OUTCOME_INDEX.NO)
-    expect(targets[0]?.tokenId).toBe('polymarket-no')
-    expect(targets[0]?.source).toBe('polymarket')
-  })
-})
 
 describe('resolvePriceHistoryEndpoint — non-FIFA events', () => {
   it('routes non-FIFA events to Kuest CLOB + market= param', () => {
     const endpoint = resolvePriceHistoryEndpoint('will-neymar-play', [
-      { conditionId: 'c1', tokenId: 'kuest-yes', source: 'kuest' },
+      { conditionId: 'c1', tokenId: 'kuest-yes' },
     ])
     expect(endpoint.source).toBe('kuest-clob')
     expect(endpoint.tokenParamName).toBe('market')
@@ -99,11 +14,12 @@ describe('resolvePriceHistoryEndpoint — non-FIFA events', () => {
     expect(endpoint.baseUrl).not.toContain('/api/polymarket')
   })
 
-  it('routes non-FIFA events to Kuest even if some ghost polymarket target exists', () => {
+  it('routes non-FIFA events to Kuest even if a ghost polymarketTokenId is present', () => {
     // Defensive: a non-FIFA event should NEVER hit the polymarket proxy,
-    // even if a target was mislabeled with source='polymarket'.
+    // regardless of the target's polymarketTokenId value. Routing is
+    // gated on eventSlug === FIFA_EVENT_SLUG first.
     const endpoint = resolvePriceHistoryEndpoint('some-other-event', [
-      { conditionId: 'c1', tokenId: 'p-yes', source: 'polymarket' },
+      { conditionId: 'c1', tokenId: 'kuest-t1', polymarketTokenId: 'poly-ghost' },
     ])
     expect(endpoint.source).toBe('kuest-clob')
     expect(endpoint.tokenParamName).toBe('market')
@@ -111,33 +27,32 @@ describe('resolvePriceHistoryEndpoint — non-FIFA events', () => {
 })
 
 describe('resolvePriceHistoryEndpoint — FIFA event', () => {
-  it('routes FIFA + polymarket-sourced targets to the proxy with token= param', () => {
+  it('routes FIFA + at least one polymarketTokenId to the proxy with token= param', () => {
     const endpoint = resolvePriceHistoryEndpoint(FIFA_SLUG, [
-      { conditionId: 'c1', tokenId: 'polymarket-spain-yes', source: 'polymarket' },
-      { conditionId: 'c2', tokenId: 'polymarket-france-yes', source: 'polymarket' },
+      { conditionId: 'c1', tokenId: 'kuest-spain-yes', polymarketTokenId: 'polymarket-spain-yes' },
+      { conditionId: 'c2', tokenId: 'kuest-france-yes', polymarketTokenId: 'polymarket-france-yes' },
     ])
     expect(endpoint.source).toBe('polymarket-proxy')
     expect(endpoint.baseUrl).toBe('/api/polymarket/prices-history')
     expect(endpoint.tokenParamName).toBe('token')
   })
 
-  it('routes FIFA + at-least-one polymarket target to the proxy (mixed batch)', () => {
+  it('routes FIFA + mixed batch (some with polymarketTokenId, some without) to the proxy', () => {
     const endpoint = resolvePriceHistoryEndpoint(FIFA_SLUG, [
-      { conditionId: 'c1', tokenId: 'kuest-italy-yes', source: 'kuest' },
-      { conditionId: 'c2', tokenId: 'polymarket-spain-yes', source: 'polymarket' },
+      { conditionId: 'c1', tokenId: 'kuest-italy-yes' }, // no overlay entry
+      { conditionId: 'c2', tokenId: 'kuest-spain-yes', polymarketTokenId: 'polymarket-spain-yes' },
     ])
     expect(endpoint.source).toBe('polymarket-proxy')
   })
 
-  it('rEVISION 4 COLD-CACHE FALLBACK: routes FIFA + zero-polymarket-targets to Kuest', () => {
-    // This is the cold-cache fallback test. If the FIFA overlay was cold +
-    // Polymarket upstream was down, no outcome got polymarket_token_id, so
-    // every target has source='kuest'. The hook must fall back to Kuest
-    // CLOB instead of hitting the proxy (which would return empty).
-    // Preserves the "never worse than today" invariant.
+  it('rEVISION 4 COLD-CACHE FALLBACK: routes FIFA + zero polymarketTokenIds to Kuest', () => {
+    // If the FIFA overlay was cold + Polymarket upstream was down, no outcome
+    // got polymarket_token_id set. Every target's polymarketTokenId stays
+    // undefined. The hook must fall back to Kuest CLOB instead of hitting
+    // the proxy (which would return empty for Kuest tokens).
     const endpoint = resolvePriceHistoryEndpoint(FIFA_SLUG, [
-      { conditionId: 'c1', tokenId: 'kuest-spain-yes', source: 'kuest' },
-      { conditionId: 'c2', tokenId: 'kuest-france-yes', source: 'kuest' },
+      { conditionId: 'c1', tokenId: 'kuest-spain-yes' },
+      { conditionId: 'c2', tokenId: 'kuest-france-yes' },
     ])
     expect(endpoint.source).toBe('kuest-clob')
     expect(endpoint.tokenParamName).toBe('market')

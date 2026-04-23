@@ -24,15 +24,22 @@ interface PriceHistoryResponse {
 
 export interface MarketTokenTarget {
   conditionId: string
+  /**
+   * Always the Kuest CLOB `token_id`. Consumed by `useEventMarketQuotes`,
+   * `useEventLastTrades`, and `useEventPriceHistory`'s Kuest-CLOB path.
+   * MUST NOT be overwritten with a Polymarket token — doing so breaks the
+   * shared consumers that POST this into Kuest's `/prices` endpoint.
+   */
   tokenId: string
   /**
-   * Which CLOB the `tokenId` belongs to. Set by `buildMarketTargets` based
-   * on whether the source outcome carried `polymarket_token_id` (set by the
-   * FIFA overlay guard clause) or only `token_id` (the Kuest default).
-   * Routes the history fetch to the right endpoint via
-   * `resolvePriceHistoryEndpoint`.
+   * Polymarket CLOB token ID, when the FIFA overlay guard clause in
+   * `event-page-data.ts` populated `outcome.polymarket_token_id`. Consumed
+   * ONLY by `useEventPriceHistory`'s Polymarket proxy path (see
+   * `resolvePriceHistoryEndpoint`). Undefined for non-FIFA events and for
+   * FIFA markets that didn't get a matching overlay entry (Revision 4
+   * cold-cache fallback).
    */
-  source: 'polymarket' | 'kuest'
+  polymarketTokenId?: string
 }
 
 export interface PriceHistoryEndpoint {
@@ -43,12 +50,12 @@ export interface PriceHistoryEndpoint {
 
 /**
  * Decide which backend to hit for price history based on the parent event's
- * slug and the polymarket-vs-kuest source of each target.
+ * slug and whether any target has a Polymarket token.
  *
  * Rules:
  *   - Non-FIFA event → Kuest CLOB (status quo).
- *   - FIFA event + at least one target with `source: 'polymarket'` → our
- *     server-side proxy at `/api/polymarket/prices-history`.
+ *   - FIFA event + at least one target with `polymarketTokenId` populated →
+ *     our server-side proxy at `/api/polymarket/prices-history`.
  *   - FIFA event + zero polymarket targets (cold-cache fallback per
  *     Revision 4 of the plan) → Kuest CLOB. Preserves the "never worse
  *     than today" invariant when the overlay was empty.
@@ -57,7 +64,7 @@ export function resolvePriceHistoryEndpoint(
   eventSlug: string,
   targets: MarketTokenTarget[],
 ): PriceHistoryEndpoint {
-  const hasPolymarketTarget = targets.some(target => target.source === 'polymarket')
+  const hasPolymarketTarget = targets.some(target => target.polymarketTokenId !== undefined)
   const usePolymarketProxy = eventSlug === FIFA_EVENT_SLUG_INLINE && hasPolymarketTarget
 
   if (usePolymarketProxy) {
@@ -253,8 +260,17 @@ async function fetchEventPriceHistory(
   const endpoint = resolvePriceHistoryEndpoint(eventSlug, targets)
   const entries = await Promise.all(
     targets.map(async (target) => {
+      // Use Polymarket token when routing to the Polymarket proxy, Kuest
+      // token otherwise. For mixed batches (some targets without a
+      // polymarketTokenId), the polymarket-proxy branch falls back to the
+      // Kuest token — the proxy will return an empty `{history: []}` for
+      // those, which the chart renders as "no data". Acceptable per
+      // Revision 4 fallback semantics.
+      const tokenForEndpoint = endpoint.source === 'polymarket-proxy'
+        ? (target.polymarketTokenId ?? target.tokenId)
+        : target.tokenId
       try {
-        const history = await fetchTokenPriceHistory(target.tokenId, filters, endpoint)
+        const history = await fetchTokenPriceHistory(tokenForEndpoint, filters, endpoint)
         return [target.conditionId, history] as const
       }
       catch {
@@ -423,32 +439,26 @@ export function buildMarketTargets(
   outcomeIndex: typeof OUTCOME_INDEX.YES | typeof OUTCOME_INDEX.NO = OUTCOME_INDEX.YES,
 ): MarketTokenTarget[] {
   return markets
-    .map((market) => {
+    .map((market): MarketTokenTarget | null => {
       const matchingOutcome = market.outcomes.find(outcome => outcome.outcome_index === outcomeIndex)
         ?? market.outcomes[0]
-      if (!matchingOutcome) {
+      if (!matchingOutcome?.token_id) {
         return null
       }
-      // Prefer polymarket_token_id when present (set by the FIFA overlay guard
-      // clause in event-page-data.ts). Falls back to the Kuest token_id for
-      // every other event and for FIFA markets that didn't get a matching
-      // overlay entry (cold cache + upstream failure — Revision 4 fallback).
-      const polymarketToken = matchingOutcome.polymarket_token_id
-      if (polymarketToken) {
-        return {
-          conditionId: market.condition_id,
-          tokenId: polymarketToken,
-          source: 'polymarket' as const,
-        }
-      }
-      if (!matchingOutcome.token_id) {
-        return null
-      }
-      return {
+      // `tokenId` is ALWAYS the Kuest token — it is consumed by
+      // `useEventMarketQuotes` and `useEventLastTrades` which POST it to
+      // Kuest's `/prices` endpoint. Overwriting with the Polymarket token
+      // caused a 404 cascade for FIFA in production (session 026). The
+      // Polymarket token rides along as `polymarketTokenId` and is only
+      // read by the chart hook when routing to the Polymarket proxy.
+      const target: MarketTokenTarget = {
         conditionId: market.condition_id,
         tokenId: matchingOutcome.token_id,
-        source: 'kuest' as const,
       }
+      if (matchingOutcome.polymarket_token_id) {
+        target.polymarketTokenId = matchingOutcome.polymarket_token_id
+      }
+      return target
     })
     .filter((target): target is MarketTokenTarget => target !== null)
 }
