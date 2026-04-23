@@ -1200,6 +1200,7 @@ function MarketDetailTabs({
             outcome={activeOutcomeForMarket}
             allMarkets={event.markets}
             eventCreatedAt={event.created_at}
+            eventSlug={event.slug}
             isMobile={isMobile}
             currentTimestamp={currentTimestamp}
           />

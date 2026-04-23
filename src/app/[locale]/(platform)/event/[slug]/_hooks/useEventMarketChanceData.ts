@@ -31,6 +31,7 @@ export function useEventMarketChanceData({
   )
   const yesPriceHistory = useEventPriceHistory({
     eventId: event.id,
+    eventSlug: event.slug,
     range,
     targets: yesMarketTargets,
     eventCreatedAt: event.created_at,

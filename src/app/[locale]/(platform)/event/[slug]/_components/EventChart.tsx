@@ -483,6 +483,7 @@ function EventChartComponent({
   )
   const noPriceHistory = useEventPriceHistory({
     eventId: event.id,
+    eventSlug: event.slug,
     range: activeTimeRange,
     targets: noMarketTargets,
     eventCreatedAt: event.created_at,
