@@ -1432,12 +1432,17 @@ export function SportsGameGraph({
       .map(target => ({
         conditionId: target.key,
         tokenId: target.tokenId,
+        // Sports games cards always draw from Kuest's CLOB (no Polymarket
+        // overlay applies to game-level markets — the FIFA overlay is scoped
+        // to the single World Cup Winner event at event-page-data.ts).
+        source: 'kuest' as const,
       })),
     [graphSeriesTargets],
   )
 
   const { normalizedHistory } = useEventPriceHistory({
     eventId: card.id,
+    eventSlug: card.slug,
     range: activeTimeRange,
     targets: marketTargets,
     eventCreatedAt: card.eventCreatedAt,
