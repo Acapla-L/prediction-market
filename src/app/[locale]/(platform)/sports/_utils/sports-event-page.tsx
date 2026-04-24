@@ -18,6 +18,7 @@ import { SportsMenuRepository } from '@/lib/db/queries/sports-menu'
 import { buildEventPageMetadata } from '@/lib/event-open-graph'
 import { getEventRouteBySlug, resolveCanonicalEventSlugFromSportsPath } from '@/lib/event-page-data'
 import { resolveEventBasePath, resolveEventMarketPath, resolveEventPagePath } from '@/lib/events-routing'
+import { applyMlbGameOverlay, getMlbGameOverlay, isMlbGameSlug } from '@/lib/polymarket/mlb-game-overlay'
 import { resolveSportsEventMarketViewKey } from '@/lib/sports-event-slugs'
 import { getSportsVerticalConfig } from '@/lib/sports-vertical'
 import { STATIC_PARAMS_PLACEHOLDER } from '@/lib/static-params'
@@ -132,7 +133,25 @@ export async function renderSportsVerticalEventPage({
     SportsMenuRepository.resolveCanonicalSlugByAlias(sport),
   ])
 
-  const cardGroups = buildSportsGamesCardGroups(groupedEvents ?? [])
+  // MLB per-game Polymarket overlay — scope-locked to the single pilot
+  // slug via MLB_GAME_SLUGS. Every other sports event renders via the
+  // existing Kuest path byte-for-byte unchanged. Mirrors the FIFA pattern
+  // in `event-page-data.ts` at the sports-route loader level. See
+  // `docs/plans/for-the-following-task-rosy-cascade.md` and
+  // `platform/src/lib/polymarket/mlb-game-overlay.ts`.
+  let overlaidGroupedEvents = groupedEvents
+  if (groupedEvents && isMlbGameSlug(canonicalEventSlug)) {
+    const overlay = await getMlbGameOverlay(canonicalEventSlug)
+    if (overlay.stale) {
+      console.warn(
+        '[mlb-game-overlay] Serving event with stale=true at',
+        overlay.lastUpdatedAt.toISOString(),
+      )
+    }
+    overlaidGroupedEvents = groupedEvents.map(e => applyMlbGameOverlay(e, overlay))
+  }
+
+  const cardGroups = buildSportsGamesCardGroups(overlaidGroupedEvents ?? [])
   const targetGroup = cardGroups[0] ?? null
   const targetCard = targetGroup?.primaryCard ?? null
   if (!targetGroup || !targetCard) {
@@ -224,7 +243,25 @@ export async function renderSportsVerticalEventMarketPage({
     EventRepository.getSportsEventGroupBySlug(canonicalEventSlug, '', resolvedLocale),
     SportsMenuRepository.resolveCanonicalSlugByAlias(sport),
   ])
-  const cardGroups = buildSportsGamesCardGroups(groupedEvents ?? [])
+
+  // MLB per-game Polymarket overlay — same guard as in
+  // renderSportsVerticalEventPage above, mirrored here so deep-links to a
+  // specific market view (`/sports/mlb/<slug>/<market>`) also receive the
+  // stitched prices. Every non-MLB slug and every non-pilot MLB slug
+  // passes through untouched.
+  let overlaidGroupedEvents = groupedEvents
+  if (groupedEvents && isMlbGameSlug(canonicalEventSlug)) {
+    const overlay = await getMlbGameOverlay(canonicalEventSlug)
+    if (overlay.stale) {
+      console.warn(
+        '[mlb-game-overlay] Serving event with stale=true at',
+        overlay.lastUpdatedAt.toISOString(),
+      )
+    }
+    overlaidGroupedEvents = groupedEvents.map(e => applyMlbGameOverlay(e, overlay))
+  }
+
+  const cardGroups = buildSportsGamesCardGroups(overlaidGroupedEvents ?? [])
   const targetGroup = cardGroups[0] ?? null
   const targetCard = targetGroup?.primaryCard ?? null
   if (!targetGroup || !targetCard) {
