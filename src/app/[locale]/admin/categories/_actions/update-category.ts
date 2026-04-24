@@ -73,6 +73,7 @@ export async function updateCategoryAction(
     updateTag(cacheTags.adminCategories)
     updateTag(cacheTags.eventsList)
     updateTag(cacheTags.events(currentUser.id))
+    updateTag(cacheTags.settings)
 
     for (const locale of SUPPORTED_LOCALES) {
       updateTag(cacheTags.mainTags(locale))

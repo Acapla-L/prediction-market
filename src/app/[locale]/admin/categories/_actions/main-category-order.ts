@@ -31,6 +31,7 @@ function revalidateCategoryCaches(userId: string) {
   updateTag(cacheTags.adminCategories)
   updateTag(cacheTags.eventsList)
   updateTag(cacheTags.events(userId))
+  updateTag(cacheTags.settings)
 
   for (const locale of SUPPORTED_LOCALES) {
     updateTag(cacheTags.mainTags(locale))
