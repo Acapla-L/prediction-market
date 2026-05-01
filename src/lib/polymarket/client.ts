@@ -1,6 +1,4 @@
 import type {
-  MlbGammaEvent,
-  MlbSportsMarketType,
   PolymarketEvent,
   PolymarketPriceHistoryResponse,
 } from '@/lib/polymarket/types'
@@ -133,39 +131,6 @@ function getClobBase(): string {
   return process.env.POLYMARKET_CLOB_BASE || POLYMARKET_CLOB_BASE_DEFAULT
 }
 
-// ---- MLB per-game Gamma schema (parallel to FIFA, not shared) -------------
-//
-// FIFA uses `groupItemTitle` as its sole discriminator (country name per
-// binary YES/NO market). MLB uses `sportsMarketType` + `line` because each
-// game has 4 structurally-different markets (moneyline, NRFI, spreads,
-// totals) — orthogonal problem shape. Rather than extending the shared
-// `GammaMarketSchema` and adding `fifaGammaSchemaUnchanged` regression
-// scaffolding, keep them parallel: zero impact on FIFA by construction.
-
-const MLB_SPORTS_MARKET_TYPE_VALUES = ['moneyline', 'nrfi', 'spreads', 'totals'] as const
-
-const MlbGammaMarketSchema = z.object({
-  id: z.string(),
-  conditionId: z.string(),
-  sportsMarketType: z.enum(MLB_SPORTS_MARKET_TYPE_VALUES),
-  // Polymarket sends `line` on spreads/totals only. Coerce to null for
-  // moneyline/nrfi responses so the downstream overlay key is stable.
-  line: z.number().nullable().optional().transform(v => v ?? null),
-  active: z.boolean(),
-  closed: z.boolean(),
-  outcomes: JsonStringTuple,
-  outcomePrices: JsonStringNumberTuple,
-  clobTokenIds: JsonStringTuple,
-  volume: z.coerce.number().default(0),
-})
-
-const MlbGammaEventSchema = z.object({
-  slug: z.string(),
-  markets: z.array(MlbGammaMarketSchema),
-})
-
-const MlbGammaResponseSchema = z.array(MlbGammaEventSchema).min(1)
-
 /**
  * Fetches the FIFA World Cup Winner event from Polymarket's Gamma API.
  * Returns `null` (never throws) on:
@@ -214,53 +179,6 @@ export async function fetchFifaGammaEvent(): Promise<PolymarketEvent | null> {
       lastTradePrice: m.lastTradePrice,
       volume: m.volume,
       volume24hr: m.volume24hr,
-    })),
-  }
-}
-
-/**
- * Fetches an MLB per-game event from Polymarket's Gamma API, keyed by slug.
- * Slug must be one of the entries in `MLB_GAME_SLUGS` — the caller is
- * responsible for the guard check. Returns `null` on any failure mode
- * (same contract as `fetchFifaGammaEvent`). Parallel fetcher; no FIFA
- * code path changes.
- */
-export async function fetchMlbGameGammaEvent(slug: string): Promise<MlbGammaEvent | null> {
-  const url = `${getGammaBase()}/events?slug=${encodeURIComponent(slug)}`
-  const res = await fetchWithRetry(url)
-  if (!res || !res.ok) {
-    return null
-  }
-
-  let data: unknown
-  try {
-    data = await res.json()
-  }
-  catch (err) {
-    console.error('[polymarket] mlb gamma json parse failed:', err)
-    return null
-  }
-
-  const parsed = MlbGammaResponseSchema.safeParse(data)
-  if (!parsed.success) {
-    console.error('[polymarket] mlb gamma zod failed:', parsed.error.issues)
-    return null
-  }
-
-  const first = parsed.data[0]
-  return {
-    slug: first.slug,
-    markets: first.markets.map(m => ({
-      id: m.id,
-      conditionId: m.conditionId,
-      sportsMarketType: m.sportsMarketType as MlbSportsMarketType,
-      line: m.line,
-      active: m.active,
-      closed: m.closed,
-      outcomes: m.outcomes,
-      outcomePrices: m.outcomePrices,
-      clobTokenIds: m.clobTokenIds,
-      volume: m.volume,
     })),
   }
 }
