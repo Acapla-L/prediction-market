@@ -7,8 +7,8 @@ interface PriceApiResponse {
   [tokenId: string]: { BUY?: string, SELL?: string } | undefined
 }
 
-interface MidpointApiResponse {
-  mid?: string
+interface MidpointsApiResponse {
+  [tokenId: string]: string | undefined
 }
 
 export interface MarketQuote {
@@ -41,26 +41,21 @@ function resolveQuote(
   return { bid, ask, mid }
 }
 
-async function fetchMidpointByToken(tokenId: string): Promise<number | null> {
-  if (!CLOB_BASE_URL) {
-    return null
+async function parseMidpointsResponse(response: Response | null): Promise<MidpointsApiResponse> {
+  if (!response?.ok) {
+    return {}
   }
 
   try {
-    const response = await fetch(`${CLOB_BASE_URL}/midpoint?token_id=${encodeURIComponent(tokenId)}`)
-    if (!response.ok) {
-      return null
-    }
-
-    const payload = await response.json() as MidpointApiResponse
-    return normalizePrice(payload?.mid)
+    const payload = await response.json() as unknown
+    return payload as MidpointsApiResponse
   }
   catch {
-    return null
+    return {}
   }
 }
 
-async function fetchQuotesByMarket(targets: MarketTokenTarget[]): Promise<MarketQuotesByMarket> {
+export async function fetchQuotesByMarket(targets: MarketTokenTarget[]): Promise<MarketQuotesByMarket> {
   const uniqueTokenIds = Array.from(
     new Set(targets.map(target => target.tokenId).filter(Boolean)),
   )
@@ -73,35 +68,36 @@ async function fetchQuotesByMarket(targets: MarketTokenTarget[]): Promise<Market
     throw new Error('CLOB URL is not configured.')
   }
 
-  const response = await fetch(`${CLOB_BASE_URL}/prices`, {
+  const requestInit: RequestInit = {
     method: 'POST',
     headers: {
       'Accept': 'application/json',
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(uniqueTokenIds.map(tokenId => ({ token_id: tokenId }))),
-  })
+  }
 
-  if (!response.ok) {
-    const message = `Failed to fetch market quotes (${response.status} ${response.statusText}).`
+  const [pricesResponse, midpointsResponse] = await Promise.all([
+    fetch(`${CLOB_BASE_URL}/prices`, requestInit),
+    fetch(`${CLOB_BASE_URL}/midpoints`, requestInit).catch(() => null),
+  ])
+
+  if (!pricesResponse.ok) {
+    const message = `Failed to fetch market quotes (${pricesResponse.status} ${pricesResponse.statusText}).`
     console.error(message)
     throw new Error(message)
   }
 
-  const [data, midpointResults] = await Promise.all([
-    response.json() as Promise<PriceApiResponse>,
-    Promise.allSettled(uniqueTokenIds.map(tokenId => fetchMidpointByToken(tokenId))),
+  const [data, midpointsData] = await Promise.all([
+    pricesResponse.json() as Promise<PriceApiResponse>,
+    parseMidpointsResponse(midpointsResponse),
   ])
-  const quotesByToken = new Map<string, MarketQuote>()
-  const midpointByToken = new Map<string, number | null>()
 
-  midpointResults.forEach((result, index) => {
-    const tokenId = uniqueTokenIds[index]
-    midpointByToken.set(tokenId, result.status === 'fulfilled' ? result.value : null)
-  })
+  const quotesByToken = new Map<string, MarketQuote>()
 
   uniqueTokenIds.forEach((tokenId) => {
-    quotesByToken.set(tokenId, resolveQuote(data?.[tokenId], midpointByToken.get(tokenId) ?? null))
+    const midpoint = normalizePrice(midpointsData[tokenId])
+    quotesByToken.set(tokenId, resolveQuote(data?.[tokenId], midpoint))
   })
 
   return targets.reduce<MarketQuotesByMarket>((acc, target) => {
@@ -113,7 +109,17 @@ async function fetchQuotesByMarket(targets: MarketTokenTarget[]): Promise<Market
   }, {})
 }
 
-export function useEventMarketQuotes(targets: MarketTokenTarget[]) {
+interface UseEventMarketQuotesOptions {
+  enabled?: boolean
+  refetchIntervalMs?: number | false
+}
+
+export function useEventMarketQuotes(targets: MarketTokenTarget[], options: UseEventMarketQuotesOptions = {}) {
+  const {
+    enabled = true,
+    refetchIntervalMs = PRICE_REFRESH_INTERVAL_MS,
+  } = options
+
   const tokenSignature = useMemo(
     () => targets.map(target => `${target.conditionId}:${target.tokenId}`).sort().join(','),
     [targets],
@@ -122,12 +128,13 @@ export function useEventMarketQuotes(targets: MarketTokenTarget[]) {
   const { data } = useQuery({
     queryKey: ['event-market-quotes', tokenSignature],
     queryFn: () => fetchQuotesByMarket(targets),
-    enabled: targets.length > 0,
+    enabled: enabled && targets.length > 0,
     staleTime: 'static',
     gcTime: PRICE_REFRESH_INTERVAL_MS,
-    refetchInterval: PRICE_REFRESH_INTERVAL_MS,
+    refetchInterval: refetchIntervalMs,
     refetchIntervalInBackground: true,
     placeholderData: keepPreviousData,
+    retry: false,
   })
 
   return data ?? {}
