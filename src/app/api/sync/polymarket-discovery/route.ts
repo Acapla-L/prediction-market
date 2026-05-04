@@ -104,10 +104,10 @@ async function handleDiscoverySync(request: Request) {
   }
 
   for (const slug of successfulSlugs) {
-    revalidateTag(cacheTags.discoveredEvent(slug))
+    revalidateTag(cacheTags.discoveredEvent(slug), 'max')
   }
   if (successfulSlugs.length > 0) {
-    revalidateTag(cacheTags.eventsList)
+    revalidateTag(cacheTags.eventsList, 'max')
   }
 
   return NextResponse.json({ ok: true, results })
