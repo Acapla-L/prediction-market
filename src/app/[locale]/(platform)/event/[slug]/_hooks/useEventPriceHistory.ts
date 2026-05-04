@@ -3,13 +3,30 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { OUTCOME_INDEX } from '@/lib/constants'
 
-// Inline constant — MUST NOT import from '@/lib/polymarket/constants' because
+// Inline constants — MUST NOT import from '@/lib/polymarket/constants' because
 // that module transitively carries `'server-only'` concerns (it is imported
 // by `fifa-overlay.ts` which imports `client.ts` which imports `server-only`).
 // This hook is used by `'use client'` components, so any runtime import from
-// the polymarket server chain would break the Turbopack build. Keep in sync
-// with `FIFA_EVENT_SLUG` at `platform/src/lib/polymarket/constants.ts`.
+// the polymarket server chain would break the Turbopack build.
+//
+// MUST stay byte-identical with the server-side allowlist at
+// `platform/src/lib/polymarket/constants.ts`. The drift detector at
+// `tests/unit/discoveryAllowlistInvariant.test.ts` fails if either side
+// changes without the other.
 const FIFA_EVENT_SLUG_INLINE = '2026-fifa-world-cup-winner-595' as const
+
+const DISCOVERED_POLYMARKET_SLUGS_INLINE = [
+  '2026-nba-champion',
+  'mlb-world-series-champion-2026',
+  '2026-nhl-stanley-cup-champion',
+  'big-game-champion-2027',
+  'uefa-champions-league-winner',
+] as const
+
+const POLYMARKET_OVERLAY_SLUGS_INLINE: ReadonlySet<string> = new Set<string>([
+  FIFA_EVENT_SLUG_INLINE,
+  ...DISCOVERED_POLYMARKET_SLUGS_INLINE,
+])
 
 export type TimeRange = '1H' | '6H' | '1D' | '1W' | '1M' | 'ALL'
 
@@ -53,19 +70,21 @@ export interface PriceHistoryEndpoint {
  * slug and whether any target has a Polymarket token.
  *
  * Rules:
- *   - Non-FIFA event → Kuest CLOB (status quo).
- *   - FIFA event + at least one target with `polymarketTokenId` populated →
- *     our server-side proxy at `/api/polymarket/prices-history`.
- *   - FIFA event + zero polymarket targets (cold-cache fallback per
- *     Revision 4 of the plan) → Kuest CLOB. Preserves the "never worse
- *     than today" invariant when the overlay was empty.
+ *   - Non-allowlisted event → Kuest CLOB (status quo).
+ *   - Allowlisted event (FIFA or any discovered slug) + at least one target
+ *     with `polymarketTokenId` populated → our server-side proxy at
+ *     `/api/polymarket/prices-history`.
+ *   - Allowlisted event + zero polymarket targets (cold-cache fallback per
+ *     Revision 4 of the original FIFA plan) → Kuest CLOB. Preserves the
+ *     "never worse than today" invariant when the overlay was empty.
  */
 export function resolvePriceHistoryEndpoint(
   eventSlug: string,
   targets: MarketTokenTarget[],
 ): PriceHistoryEndpoint {
   const hasPolymarketTarget = targets.some(target => target.polymarketTokenId !== undefined)
-  const usePolymarketProxy = eventSlug === FIFA_EVENT_SLUG_INLINE && hasPolymarketTarget
+  const isOverlaySlug = POLYMARKET_OVERLAY_SLUGS_INLINE.has(eventSlug)
+  const usePolymarketProxy = isOverlaySlug && hasPolymarketTarget
 
   if (usePolymarketProxy) {
     return {
