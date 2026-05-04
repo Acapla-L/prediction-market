@@ -8,4 +8,5 @@ export const cacheTags = {
   adminCategories: 'admin:categories',
   mainTags: (locale: string) => `main-tags:${locale}`,
   settings: 'settings',
+  discoveredEvent: (slug: string) => `polymarket-discovered:event:${slug}`,
 }

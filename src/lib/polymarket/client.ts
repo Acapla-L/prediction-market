@@ -64,11 +64,19 @@ const GammaMarketSchema = z.object({
   lastTradePrice: z.number().nullable().default(null),
   volume: z.coerce.number().default(0),
   volume24hr: z.coerce.number().nullable().default(null),
+  // Optional fields used by the discovery sidecar; FIFA path ignores them.
+  slug: z.string().optional(),
+  icon: z.string().nullable().optional(),
 })
 
 const GammaEventSchema = z.object({
   slug: z.string(),
   markets: z.array(GammaMarketSchema),
+  // Optional fields used by the discovery sidecar; FIFA path ignores them.
+  // Gamma serializes `id` as a number — coerce so we can persist as text.
+  id: z.coerce.string().optional(),
+  title: z.string().optional(),
+  endDate: z.string().nullable().optional(),
 })
 
 const GammaResponseSchema = z.array(GammaEventSchema).min(1)
@@ -132,16 +140,16 @@ function getClobBase(): string {
 }
 
 /**
- * Fetches the FIFA World Cup Winner event from Polymarket's Gamma API.
- * Returns `null` (never throws) on:
+ * Fetches a Polymarket Gamma event by slug. Returns `null` (never throws) on:
  *   - Network error / timeout
- *   - Non-2xx status after retry exhaustion
+ *   - Non-2xx status after retry exhaustion (incl. 404)
  *   - JSON parse failure
  *   - Zod validation failure (including malformed JSON strings inside
  *     `outcomes` / `outcomePrices` / `clobTokenIds`)
+ *   - Empty Gamma response array (slug not present in Gamma)
  */
-export async function fetchFifaGammaEvent(): Promise<PolymarketEvent | null> {
-  const url = `${getGammaBase()}/events?slug=${encodeURIComponent(FIFA_EVENT_SLUG)}`
+export async function fetchPolymarketGammaEvent(slug: string): Promise<PolymarketEvent | null> {
+  const url = `${getGammaBase()}/events?slug=${encodeURIComponent(slug)}`
   const res = await fetchWithRetry(url)
   if (!res || !res.ok) {
     return null
@@ -165,6 +173,9 @@ export async function fetchFifaGammaEvent(): Promise<PolymarketEvent | null> {
   const first = parsed.data[0]
   return {
     slug: first.slug,
+    id: first.id,
+    title: first.title,
+    endDate: first.endDate ?? null,
     markets: first.markets.map(m => ({
       id: m.id,
       conditionId: m.conditionId,
@@ -179,8 +190,19 @@ export async function fetchFifaGammaEvent(): Promise<PolymarketEvent | null> {
       lastTradePrice: m.lastTradePrice,
       volume: m.volume,
       volume24hr: m.volume24hr,
+      slug: m.slug,
+      iconUrl: m.icon ?? null,
     })),
   }
+}
+
+/**
+ * Backwards-compatible alias of {@link fetchPolymarketGammaEvent} that targets
+ * the FIFA World Cup Winner slug. Preserved so existing FIFA-overlay callers
+ * continue to compile unchanged.
+ */
+export async function fetchFifaGammaEvent(): Promise<PolymarketEvent | null> {
+  return fetchPolymarketGammaEvent(FIFA_EVENT_SLUG)
 }
 
 export interface PriceHistoryParams {
