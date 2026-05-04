@@ -2,14 +2,23 @@
 
 import type { Metadata } from 'next'
 import type { SupportedLocale } from '@/i18n/locales'
+import type { EventPageContentData } from '@/lib/event-page-data'
 import { setRequestLocale } from 'next-intl/server'
 import { notFound } from 'next/navigation'
 import EventContent from '@/app/[locale]/(platform)/event/[slug]/_components/EventContent'
 import EventStructuredData from '@/components/seo/EventStructuredData'
 import { redirect } from '@/i18n/navigation'
 import { buildEventPageMetadata } from '@/lib/event-open-graph'
-import { getEventRouteBySlug, loadEventPagePublicContentData } from '@/lib/event-page-data'
+import {
+
+  getEventRouteBySlug,
+  loadEventPagePublicContentData,
+} from '@/lib/event-page-data'
 import { resolveEventBasePath, resolveEventPagePath } from '@/lib/events-routing'
+import {
+  isDiscoveryEnabledForSlug,
+  loadDiscoveredEventPageData,
+} from '@/lib/polymarket/discovery'
 import { STATIC_PARAMS_PLACEHOLDER } from '@/lib/static-params'
 import { loadRuntimeThemeState } from '@/lib/theme-settings'
 
@@ -40,22 +49,40 @@ async function CachedEventPageContent({
   'use cache'
 
   const eventRoute = await getEventRouteBySlug(slug)
-  if (!eventRoute) {
+
+  let eventPageData: EventPageContentData | null = null
+  let runtimeTheme: Awaited<ReturnType<typeof loadRuntimeThemeState>>
+
+  if (eventRoute) {
+    const sportsPath = resolveEventBasePath(eventRoute)
+    if (sportsPath) {
+      redirect({
+        href: sportsPath,
+        locale,
+      })
+    }
+
+    const [data, theme] = await Promise.all([
+      loadEventPagePublicContentData(slug, locale),
+      loadRuntimeThemeState(),
+    ])
+    eventPageData = data
+    runtimeTheme = theme
+  }
+  else if (isDiscoveryEnabledForSlug(slug)) {
+    // No row in the main events table — fall back to the Polymarket discovery
+    // sidecar for allowlisted slugs. See Phase A v2 plan §A.4.
+    const [data, theme] = await Promise.all([
+      loadDiscoveredEventPageData(slug),
+      loadRuntimeThemeState(),
+    ])
+    eventPageData = data
+    runtimeTheme = theme
+  }
+  else {
     notFound()
   }
 
-  const sportsPath = resolveEventBasePath(eventRoute)
-  if (sportsPath) {
-    redirect({
-      href: sportsPath,
-      locale,
-    })
-  }
-
-  const [eventPageData, runtimeTheme] = await Promise.all([
-    loadEventPagePublicContentData(slug, locale),
-    loadRuntimeThemeState(),
-  ])
   if (!eventPageData) {
     notFound()
   }
