@@ -296,6 +296,18 @@ async function createSyncEventCreationsCron(sql, siteUrl, cronSecret) {
   })
 }
 
+async function createSyncPolymarketDiscoveryCron(sql, siteUrl, cronSecret) {
+  // Hourly is plenty — these are slow-moving futures slugs (NBA / MLB / NHL /
+  // NFL / UCL champions). Phase A v2 plan §A.3.
+  await createSyncCron(sql, {
+    jobName: 'sync-polymarket-discovery',
+    schedule: '7 * * * *',
+    endpointPath: '/api/sync/polymarket-discovery',
+    siteUrl,
+    cronSecret,
+  })
+}
+
 async function resolveCronExtensionCapabilities(sql) {
   const result = await sql`
     SELECT
@@ -335,6 +347,7 @@ async function configureSupabaseScheduler(sql, siteUrl, cronSecret) {
   await createSyncTranslationsCron(sql, siteUrl, cronSecret)
   await createSyncResolutionCron(sql, siteUrl, cronSecret)
   await createSyncVolumeCron(sql, siteUrl, cronSecret)
+  await createSyncPolymarketDiscoveryCron(sql, siteUrl, cronSecret)
 }
 
 function resolveMigrationConnectionString() {

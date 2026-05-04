@@ -64,11 +64,19 @@ const GammaMarketSchema = z.object({
   lastTradePrice: z.number().nullable().default(null),
   volume: z.coerce.number().default(0),
   volume24hr: z.coerce.number().nullable().default(null),
+  // Optional fields used by the discovery sidecar; FIFA path ignores them.
+  slug: z.string().optional(),
+  icon: z.string().nullable().optional(),
 })
 
 const GammaEventSchema = z.object({
   slug: z.string(),
   markets: z.array(GammaMarketSchema),
+  // Optional fields used by the discovery sidecar; FIFA path ignores them.
+  // Gamma serializes `id` as a number — coerce so we can persist as text.
+  id: z.coerce.string().optional(),
+  title: z.string().optional(),
+  endDate: z.string().nullable().optional(),
 })
 
 const GammaResponseSchema = z.array(GammaEventSchema).min(1)
@@ -165,6 +173,9 @@ export async function fetchPolymarketGammaEvent(slug: string): Promise<Polymarke
   const first = parsed.data[0]
   return {
     slug: first.slug,
+    id: first.id,
+    title: first.title,
+    endDate: first.endDate ?? null,
     markets: first.markets.map(m => ({
       id: m.id,
       conditionId: m.conditionId,
@@ -179,6 +190,8 @@ export async function fetchPolymarketGammaEvent(slug: string): Promise<Polymarke
       lastTradePrice: m.lastTradePrice,
       volume: m.volume,
       volume24hr: m.volume24hr,
+      slug: m.slug,
+      iconUrl: m.icon ?? null,
     })),
   }
 }

@@ -28,11 +28,21 @@ export interface PolymarketMarket {
   lastTradePrice: number | null
   volume: number
   volume24hr: number | null
+  /** Gamma market slug. Used by the discovery sidecar (FIFA path ignores). */
+  slug?: string
+  /** Gamma market icon URL. Used by the discovery sidecar (FIFA path ignores). */
+  iconUrl?: string | null
 }
 
 export interface PolymarketEvent {
   slug: string
   markets: readonly PolymarketMarket[]
+  /** Gamma event id (numeric, captured as string). Used by the discovery sidecar. */
+  id?: string
+  /** Gamma event title. Used by the discovery sidecar (FIFA path ignores). */
+  title?: string
+  /** Gamma event endDate (ISO 8601). Used by the discovery sidecar (FIFA path ignores). */
+  endDate?: string | null
 }
 
 // ---- Polymarket CLOB API (price history) -----------------------------------
