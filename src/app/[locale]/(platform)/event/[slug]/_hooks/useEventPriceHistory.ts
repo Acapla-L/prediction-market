@@ -105,6 +105,26 @@ const RANGE_CONFIG: Record<Exclude<TimeRange, 'ALL'>, { interval: string, fideli
   '1M': { interval: '1m', fidelity: 180 },
 }
 const ALL_FIDELITY = 720
+/**
+ * Polymarket CLOB rejects `[startTs, endTs]` windows greater than 14 days
+ * with: `"invalid filters: 'startTs' and 'endTs' interval is too long"`.
+ *
+ * For long-running events (e.g., FIFA World Cup Winner: created 2026-04-15,
+ * resolves 2026-07-20), our previous filter shape always produced this
+ * rejection once `(now - createdAt) > 14 days`, returning 502 from our
+ * proxy and silently failing the chart. Fix: when the requested span
+ * exceeds this limit, omit `endTs` and let Polymarket use its default end.
+ *
+ * Boundary verified by direct curl probes against `clob.polymarket.com`:
+ *   - 14 day span → HTTP 200
+ *   - 16 day span → HTTP 400 with the `'too long'` error message
+ *
+ * Resolved-market post-resolution bleed is filtered downstream by
+ * `clipNormalizedHistoryToResolvedAt` (defined later in this file), so
+ * dropping `endTs` for resolved events does not surface stale
+ * post-resolution points in the chart UI.
+ */
+const POLYMARKET_MAX_SPAN_SECONDS = 14 * 24 * 60 * 60
 const RANGE_WINDOW_SECONDS: Record<Exclude<TimeRange, 'ALL'>, number> = {
   '1H': 60 * 60,
   '6H': 6 * 60 * 60,
@@ -168,17 +188,21 @@ function resolveFidelityForSpan(spanSeconds: number) {
   return ALL_FIDELITY
 }
 
-function buildTimeRangeFilters(range: TimeRange, createdAt: string, resolvedAt?: string | null): RangeFilters {
+export function buildTimeRangeFilters(range: TimeRange, createdAt: string, resolvedAt?: string | null): RangeFilters {
   const resolvedSeconds = parseResolvedAtSeconds(resolvedAt)
   const hasResolvedAnchor = Number.isFinite(resolvedSeconds)
   const { createdSeconds, nowSeconds, ageSeconds } = resolveCreatedRange(createdAt, resolvedAt)
 
   if (range === 'ALL') {
-    return {
+    const span = nowSeconds - createdSeconds
+    const filters: RangeFilters = {
       fidelity: resolveFidelityForSpan(ageSeconds).toString(),
       startTs: createdSeconds.toString(),
-      endTs: nowSeconds.toString(),
     }
+    if (span <= POLYMARKET_MAX_SPAN_SECONDS) {
+      filters.endTs = nowSeconds.toString()
+    }
+    return filters
   }
 
   const config = RANGE_CONFIG[range]
@@ -189,11 +213,15 @@ function buildTimeRangeFilters(range: TimeRange, createdAt: string, resolvedAt?:
   // interval-only filters for short ranges.
   if (!hasResolvedAnchor) {
     if (isLongRange && ageSeconds < windowSeconds) {
-      return {
+      const span = nowSeconds - createdSeconds
+      const filters: RangeFilters = {
         fidelity: resolveFidelityForSpan(ageSeconds).toString(),
         startTs: createdSeconds.toString(),
-        endTs: nowSeconds.toString(),
       }
+      if (span <= POLYMARKET_MAX_SPAN_SECONDS) {
+        filters.endTs = nowSeconds.toString()
+      }
+      return filters
     }
 
     return {
@@ -209,11 +237,15 @@ function buildTimeRangeFilters(range: TimeRange, createdAt: string, resolvedAt?:
     ? resolveFidelityForSpan(ageSeconds)
     : config.fidelity
 
-  return {
+  const span = nowSeconds - startSeconds
+  const filters: RangeFilters = {
     fidelity: fidelity.toString(),
     startTs: startSeconds.toString(),
-    endTs: nowSeconds.toString(),
   }
+  if (span <= POLYMARKET_MAX_SPAN_SECONDS) {
+    filters.endTs = nowSeconds.toString()
+  }
+  return filters
 }
 
 async function fetchTokenPriceHistory(
