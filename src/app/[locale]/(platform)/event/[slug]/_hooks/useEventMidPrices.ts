@@ -22,6 +22,19 @@ export type MarketQuotesByMarket = Record<string, MarketQuote>
 const PRICE_REFRESH_INTERVAL_MS = 60_000
 const CLOB_BASE_URL = process.env.CLOB_URL
 
+// Synthetic condition_ids minted by the Polymarket discovery sidecar
+// (see `lib/polymarket/discovery.ts:SYNTHETIC_CONDITION_PREFIX`). These are
+// NOT valid Kuest CLOB tokens — POSTing them to /prices or /midpoints returns
+// 404. Filter them out at the hook layer to avoid console noise + nonfunctional
+// real-time subscriptions for discovery events. Inlined to keep this client
+// hook free of `server-only` imports (mirrors the FIFA + discovered-slugs
+// allowlist mirror pattern in useEventPriceHistory.ts).
+const SYNTHETIC_CONDITION_PREFIX = 'polymarket-discovered:'
+
+function isSyntheticTarget(target: MarketTokenTarget): boolean {
+  return target.conditionId.startsWith(SYNTHETIC_CONDITION_PREFIX)
+}
+
 function normalizePrice(value: string | number | undefined | null) {
   return normalizeClobMarketPrice(value)
 }
@@ -56,8 +69,12 @@ async function parseMidpointsResponse(response: Response | null): Promise<Midpoi
 }
 
 export async function fetchQuotesByMarket(targets: MarketTokenTarget[]): Promise<MarketQuotesByMarket> {
+  // Skip synthetic discovery targets — their condition_ids are namespaced
+  // placeholders (no Kuest CLOB liquidity exists for them).
+  const kuestTargets = targets.filter(target => !isSyntheticTarget(target))
+
   const uniqueTokenIds = Array.from(
-    new Set(targets.map(target => target.tokenId).filter(Boolean)),
+    new Set(kuestTargets.map(target => target.tokenId).filter(Boolean)),
   )
 
   if (!uniqueTokenIds.length) {
@@ -100,7 +117,7 @@ export async function fetchQuotesByMarket(targets: MarketTokenTarget[]): Promise
     quotesByToken.set(tokenId, resolveQuote(data?.[tokenId], midpoint))
   })
 
-  return targets.reduce<MarketQuotesByMarket>((acc, target) => {
+  return kuestTargets.reduce<MarketQuotesByMarket>((acc, target) => {
     const quote = quotesByToken.get(target.tokenId)
     if (quote) {
       acc[target.conditionId] = quote
