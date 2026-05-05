@@ -298,7 +298,7 @@ describe('discovery — loadDiscoveredEventPageData', () => {
 
     expect(result).not.toBeNull()
     expect(result?.event.slug).toBe('uefa-champions-league-winner')
-    expect(result?.event.markets).toHaveLength(2)
+    expect(result?.event.markets).toHaveLength(1)
     expect(result?.changeLogEntries).toEqual([])
     expect(result?.seriesEvents).toEqual([])
     expect(result?.liveChartConfig).toBeNull()
@@ -313,6 +313,6 @@ describe('discovery — loadDiscoveredEventPageData', () => {
     const result = await loadDiscoveredEventPageData('uefa-champions-league-winner')
     // Stale payload still serves — just like the FIFA overlay's stale path.
     expect(result).not.toBeNull()
-    expect(result?.event.markets).toHaveLength(2)
+    expect(result?.event.markets).toHaveLength(1)
   })
 })

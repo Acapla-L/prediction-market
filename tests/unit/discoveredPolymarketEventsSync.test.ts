@@ -1,5 +1,5 @@
 import type { PolymarketEvent } from '@/lib/polymarket/types'
-import { revalidateTag } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { GET } from '@/app/api/sync/polymarket-discovery/route'
@@ -30,11 +30,13 @@ vi.mock('next/server', async () => {
 })
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
+  revalidatePath: vi.fn(),
 }))
 
 const mockedFetch = vi.mocked(fetchPolymarketGammaEvent)
 const mockedAuth = vi.mocked(isCronAuthorized)
 const mockedRevalidate = vi.mocked(revalidateTag)
+const mockedRevalidatePath = vi.mocked(revalidatePath)
 const mockedRepo = vi.mocked(DiscoveredEventsRepository)
 
 function makeRequest(headers: Record<string, string> = {}): Request {
@@ -100,6 +102,7 @@ describe('/api/sync/polymarket-discovery — auth', () => {
   beforeEach(() => {
     mockedFetch.mockReset()
     mockedRevalidate.mockReset()
+    mockedRevalidatePath.mockReset()
     mockedAuth.mockReset()
     mockedRepo.upsertSuccess.mockReset()
     mockedRepo.markFailure.mockReset()
@@ -119,9 +122,13 @@ describe('/api/sync/polymarket-discovery — happy path', () => {
   beforeEach(() => {
     mockedFetch.mockReset()
     mockedRevalidate.mockReset()
-    mockedAuth.mockReset().mockReturnValue(true)
-    mockedRepo.upsertSuccess.mockReset().mockResolvedValue(makeUpsertOk())
-    mockedRepo.markFailure.mockReset().mockResolvedValue(makeFailureOk())
+    mockedRevalidatePath.mockReset()
+    mockedAuth.mockReset()
+    mockedAuth.mockReturnValue(true)
+    mockedRepo.upsertSuccess.mockReset()
+    mockedRepo.upsertSuccess.mockResolvedValue(makeUpsertOk())
+    mockedRepo.markFailure.mockReset()
+    mockedRepo.markFailure.mockResolvedValue(makeFailureOk())
   })
 
   it('iterates all five day-1 slugs and upserts each on Gamma success', async () => {
@@ -163,12 +170,41 @@ describe('/api/sync/polymarket-discovery — happy path', () => {
 
     await GET(makeRequest())
 
-    // 5 per-slug invalidations + 1 eventsList
+    // 5 per-slug tag invalidations + 1 eventsList
     expect(mockedRevalidate).toHaveBeenCalledTimes(6)
-    const calls = mockedRevalidate.mock.calls.map(c => c[0])
-    expect(calls).toContain('polymarket-discovered:event:2026-nba-champion')
-    expect(calls).toContain('polymarket-discovered:event:uefa-champions-league-winner')
-    expect(calls).toContain('events:list')
+    const tagCalls = mockedRevalidate.mock.calls.map(c => c[0])
+    expect(tagCalls).toContain('polymarket-discovered:event:2026-nba-champion')
+    expect(tagCalls).toContain('polymarket-discovered:event:uefa-champions-league-winner')
+    expect(tagCalls).toContain('events:list')
+  })
+
+  it('calls revalidatePath for each successful slug to bust the Vercel edge CDN', async () => {
+    mockedFetch.mockImplementation(async slug => makeGammaEvent(slug))
+
+    await GET(makeRequest())
+
+    // One revalidatePath per successful slug
+    expect(mockedRevalidatePath).toHaveBeenCalledTimes(5)
+    const pathCalls = mockedRevalidatePath.mock.calls.map(c => c[0])
+    expect(pathCalls).toContain('/event/2026-nba-champion')
+    expect(pathCalls).toContain('/event/uefa-champions-league-winner')
+    expect(pathCalls).toContain('/event/mlb-world-series-champion-2026')
+    expect(pathCalls).toContain('/event/2026-nhl-stanley-cup-champion')
+    expect(pathCalls).toContain('/event/big-game-champion-2027')
+  })
+
+  it('does NOT call revalidatePath for slugs that failed to sync', async () => {
+    mockedFetch.mockImplementation(async (slug) => {
+      if (slug === '2026-nba-champion') {
+        return makeGammaEvent(slug)
+      }
+      return null
+    })
+
+    await GET(makeRequest())
+
+    expect(mockedRevalidatePath).toHaveBeenCalledTimes(1)
+    expect(mockedRevalidatePath).toHaveBeenCalledWith('/event/2026-nba-champion')
   })
 })
 
@@ -176,9 +212,13 @@ describe('/api/sync/polymarket-discovery — partial failure', () => {
   beforeEach(() => {
     mockedFetch.mockReset()
     mockedRevalidate.mockReset()
-    mockedAuth.mockReset().mockReturnValue(true)
-    mockedRepo.upsertSuccess.mockReset().mockResolvedValue(makeUpsertOk())
-    mockedRepo.markFailure.mockReset().mockResolvedValue(makeFailureOk())
+    mockedRevalidatePath.mockReset()
+    mockedAuth.mockReset()
+    mockedAuth.mockReturnValue(true)
+    mockedRepo.upsertSuccess.mockReset()
+    mockedRepo.upsertSuccess.mockResolvedValue(makeUpsertOk())
+    mockedRepo.markFailure.mockReset()
+    mockedRepo.markFailure.mockResolvedValue(makeFailureOk())
   })
 
   it('records gamma_404 on null fetcher result without touching the payload', async () => {
@@ -220,8 +260,10 @@ describe('/api/sync/polymarket-discovery — partial failure', () => {
     expect(failSlugs).toHaveLength(3)
     expect(mockedRepo.upsertSuccess).toHaveBeenCalledTimes(2)
     expect(mockedRepo.markFailure).toHaveBeenCalledTimes(3)
-    // 2 per-slug + 1 eventsList
+    // 2 per-slug tags + 1 eventsList
     expect(mockedRevalidate).toHaveBeenCalledTimes(3)
+    // 2 revalidatePath for the 2 successful slugs
+    expect(mockedRevalidatePath).toHaveBeenCalledTimes(2)
   })
 
   it('captures network_error when the fetcher throws', async () => {
