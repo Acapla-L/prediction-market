@@ -1,16 +1,15 @@
-'use cache'
-
 import type { Metadata } from 'next'
 import type { SupportedLocale } from '@/i18n/locales'
 import type { EventPageContentData } from '@/lib/event-page-data'
 import { setRequestLocale } from 'next-intl/server'
+import { cacheTag } from 'next/cache'
 import { notFound } from 'next/navigation'
 import EventContent from '@/app/[locale]/(platform)/event/[slug]/_components/EventContent'
 import EventStructuredData from '@/components/seo/EventStructuredData'
 import { redirect } from '@/i18n/navigation'
+import { cacheTags } from '@/lib/cache-tags'
 import { buildEventPageMetadata } from '@/lib/event-open-graph'
 import {
-
   getEventRouteBySlug,
   loadEventPagePublicContentData,
 } from '@/lib/event-page-data'
@@ -39,13 +38,22 @@ export async function generateMetadata({ params }: PageProps<'/[locale]/event/[s
   })
 }
 
-async function CachedEventPageContent({
-  locale,
-  slug,
-}: {
+interface EventPageCachedData {
+  eventPageData: EventPageContentData
+  runtimeTheme: Awaited<ReturnType<typeof loadRuntimeThemeState>>
   locale: SupportedLocale
-  slug: string
-}) {
+}
+
+// 'use cache' data-fetcher — never calls notFound() so the HTTP response
+// status is not committed inside the cache boundary. Returns null for any
+// unknown/disabled slug so the outer EventPage component can call notFound()
+// with a proper HTTP 404 status. (Calling notFound() inside 'use cache' in
+// Next.js 16 Cache Components causes the response to be committed as 200
+// before the not-found throw is processed, producing a hydration mismatch.)
+async function fetchEventPageCachedData(
+  locale: SupportedLocale,
+  slug: string,
+): Promise<EventPageCachedData | null> {
   'use cache'
 
   const eventRoute = await getEventRouteBySlug(slug)
@@ -72,6 +80,7 @@ async function CachedEventPageContent({
   else if (isDiscoveryEnabledForSlug(slug)) {
     // No row in the main events table — fall back to the Polymarket discovery
     // sidecar for allowlisted slugs. See Phase A v2 plan §A.4.
+    cacheTag(cacheTags.discoveredEvent(slug))
     const [data, theme] = await Promise.all([
       loadDiscoveredEventPageData(slug),
       loadRuntimeThemeState(),
@@ -80,18 +89,36 @@ async function CachedEventPageContent({
     runtimeTheme = theme
   }
   else {
-    notFound()
+    return null
   }
 
   if (!eventPageData) {
+    return null
+  }
+
+  return { eventPageData, runtimeTheme: runtimeTheme!, locale }
+}
+
+export default async function EventPage({ params }: PageProps<'/[locale]/event/[slug]'>) {
+  const { locale, slug } = await params
+  setRequestLocale(locale)
+  const resolvedLocale = locale as SupportedLocale
+  if (slug === STATIC_PARAMS_PLACEHOLDER) {
     notFound()
   }
+
+  const cached = await fetchEventPageCachedData(resolvedLocale, slug)
+  if (!cached) {
+    notFound()
+  }
+
+  const { eventPageData, runtimeTheme } = cached
 
   return (
     <>
       <EventStructuredData
         event={eventPageData.event}
-        locale={locale}
+        locale={resolvedLocale}
         pagePath={resolveEventPagePath(eventPageData.event)}
         site={runtimeTheme.site}
       />
@@ -106,15 +133,4 @@ async function CachedEventPageContent({
       />
     </>
   )
-}
-
-export default async function EventPage({ params }: PageProps<'/[locale]/event/[slug]'>) {
-  const { locale, slug } = await params
-  setRequestLocale(locale)
-  const resolvedLocale = locale as SupportedLocale
-  if (slug === STATIC_PARAMS_PLACEHOLDER) {
-    notFound()
-  }
-
-  return <CachedEventPageContent locale={resolvedLocale} slug={slug} />
 }
