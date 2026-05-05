@@ -27,7 +27,9 @@ const CASES: readonly SmokeCase[] = [
   { slug: '2026-nba-champion', expectedTitleSubstring: 'NBA' },
   { slug: 'mlb-world-series-champion-2026', expectedTitleSubstring: 'World Series' },
   { slug: '2026-nhl-stanley-cup-champion', expectedTitleSubstring: 'Stanley Cup' },
-  { slug: 'big-game-champion-2027', expectedTitleSubstring: 'Super Bowl' },
+  // Polymarket uses "NFL Champion" (trademark-safe) not "Super Bowl" in the
+  // event title for this slug. Matches the actual sidecar payload.
+  { slug: 'big-game-champion-2027', expectedTitleSubstring: 'NFL Champion' },
 ] as const
 
 async function hashAccessCode(code: string): Promise<string> {
@@ -48,7 +50,16 @@ function resolveCookieDomain(baseURL: string): string {
 }
 
 test.describe('discovery + FIFA event pages render with expected title', () => {
-  test.beforeEach(async ({ context, baseURL }) => {
+  test.beforeEach(async ({ context, page, baseURL }) => {
+    // Vercel deployment protection: when running against a protected preview
+    // URL, hit the bypass URL once so the browser context picks up the
+    // `_vercel_jwt` auth cookie. Generated via the Vercel MCP `get_access_to_vercel_url`
+    // tool or the Vercel dashboard's "Generate Share Link" feature.
+    const vercelBypass = process.env.VERCEL_PROTECTION_BYPASS
+    if (vercelBypass && baseURL) {
+      await page.goto(`/?_vercel_share=${vercelBypass}`, { waitUntil: 'domcontentloaded' })
+    }
+
     const accessCode = process.env.SITE_ACCESS_CODE
     if (!accessCode || !baseURL) {
       return
