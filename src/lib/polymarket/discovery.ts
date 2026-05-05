@@ -207,8 +207,18 @@ export async function loadDiscoveredEventPageData(slug: string): Promise<EventPa
     return null
   }
 
-  const payload = parsePayload(row.marketsPayload)
-  if (!payload || payload.markets.length === 0) {
+  const rawPayload = parsePayload(row.marketsPayload)
+  if (!rawPayload) {
+    return null
+  }
+
+  // Only show tradeable (in-contention) markets. Eliminated teams have
+  // is_closed=true with prices [0, 1]; placeholder slots have is_active=false.
+  const payload = {
+    ...rawPayload,
+    markets: rawPayload.markets.filter(m => m.is_active && !m.is_closed),
+  }
+  if (payload.markets.length === 0) {
     return null
   }
 

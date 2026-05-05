@@ -1,4 +1,4 @@
-import { revalidateTag } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { connection, NextResponse } from 'next/server'
 import { isCronAuthorized } from '@/lib/auth-cron'
 import { cacheTags } from '@/lib/cache-tags'
@@ -105,6 +105,9 @@ async function handleDiscoverySync(request: Request) {
 
   for (const slug of successfulSlugs) {
     revalidateTag(cacheTags.discoveredEvent(slug), 'max')
+    // Also bust the Vercel edge CDN HTML for the event page so the pre-rendered
+    // "Oops" response from before the first sync never gets served again.
+    revalidatePath(`/event/${slug}`)
   }
   if (successfulSlugs.length > 0) {
     revalidateTag(cacheTags.eventsList, 'max')
