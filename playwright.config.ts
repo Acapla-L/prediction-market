@@ -13,6 +13,10 @@ import { defineConfig, devices } from '@playwright/test'
  */
 export default defineConfig({
   testDir: './tests/e2e',
+  // Smoke specs run against a deployed URL via playwright.smoke.config.ts and
+  // must NOT execute under the local-dev e2e config (which spins up the dev
+  // server via webServer).
+  testIgnore: /.*\.smoke\.spec\.ts/,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

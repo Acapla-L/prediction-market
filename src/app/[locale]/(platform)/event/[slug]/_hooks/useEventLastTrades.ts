@@ -7,12 +7,23 @@ import { normalizeClobMarketPrice } from '@/lib/clob-price'
 const CLOB_BASE_URL = process.env.CLOB_URL
 const LAST_TRADE_REFRESH_INTERVAL_MS = 60_000
 
+// Synthetic condition_ids minted by the Polymarket discovery sidecar
+// (see `lib/polymarket/discovery.ts:SYNTHETIC_CONDITION_PREFIX`). Filter
+// them out so we don't POST invalid token_ids to Kuest's /last-trades-prices.
+// Inlined to keep this client hook free of `server-only` imports.
+const SYNTHETIC_CONDITION_PREFIX = 'polymarket-discovered:'
+
+function isSyntheticTarget(target: MarketTokenTarget): boolean {
+  return target.conditionId.startsWith(SYNTHETIC_CONDITION_PREFIX)
+}
+
 function normalizePrice(value: string | undefined) {
   return normalizeClobMarketPrice(value)
 }
 
 async function fetchLastTradesByMarket(targets: MarketTokenTarget[]) {
-  const uniqueTokenIds = Array.from(new Set(targets.map(target => target.tokenId).filter(Boolean)))
+  const kuestTargets = targets.filter(target => !isSyntheticTarget(target))
+  const uniqueTokenIds = Array.from(new Set(kuestTargets.map(target => target.tokenId).filter(Boolean)))
 
   if (!uniqueTokenIds.length) {
     return {}
@@ -47,7 +58,7 @@ async function fetchLastTradesByMarket(targets: MarketTokenTarget[]) {
     }
   })
 
-  return targets.reduce<Record<string, number>>((acc, target) => {
+  return kuestTargets.reduce<Record<string, number>>((acc, target) => {
     const lastTrade = lastTradesByToken.get(target.tokenId)
     if (lastTrade != null) {
       acc[target.conditionId] = lastTrade

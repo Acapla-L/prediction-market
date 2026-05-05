@@ -8,7 +8,11 @@ import EventContent from '@/app/[locale]/(platform)/event/[slug]/_components/Eve
 import EventStructuredData from '@/components/seo/EventStructuredData'
 import { redirect } from '@/i18n/navigation'
 import { cacheTags } from '@/lib/cache-tags'
-import { buildEventPageMetadata } from '@/lib/event-open-graph'
+import {
+  buildEventOgImageUrl,
+  buildEventPageMetadata,
+  buildEventPageUrl,
+} from '@/lib/event-open-graph'
 import {
   getEventRouteBySlug,
   loadEventPagePublicContentData,
@@ -17,6 +21,7 @@ import { resolveEventBasePath, resolveEventPagePath } from '@/lib/events-routing
 import {
   isDiscoveryEnabledForSlug,
   loadDiscoveredEventPageData,
+  loadDiscoveredEventShellData,
 } from '@/lib/polymarket/discovery'
 import { STATIC_PARAMS_PLACEHOLDER } from '@/lib/static-params'
 import { loadRuntimeThemeState } from '@/lib/theme-settings'
@@ -32,6 +37,55 @@ export async function generateMetadata({ params }: PageProps<'/[locale]/event/[s
   if (slug === STATIC_PARAMS_PLACEHOLDER) {
     notFound()
   }
+
+  // Discovery slugs are NOT in the Kuest events table. The Kuest path
+  // (buildEventPageMetadata → loadEventPageShellData → getEventTitleBySlug)
+  // returns null and calls notFound() inside generateMetadata, which Next.js
+  // streams via RSC and injects NEXT_HTTP_ERROR_FALLBACK;404 — flipping the
+  // correctly-rendered discovery page to the not-found boundary mid-render
+  // (React error #419 hydration mismatch). Branch to a sidecar-backed shell
+  // loader symmetric with loadEventPageShellData.
+  if (isDiscoveryEnabledForSlug(slug)) {
+    const { row, site } = await loadDiscoveredEventShellData(slug)
+    if (!row) {
+      notFound()
+    }
+    const title = row.title.trim()
+    const siteName = site.name
+    const description = `Live odds, market activity, and trading data for ${title} on ${siteName}.`
+    const pageUrl = buildEventPageUrl({ eventSlug: slug, locale: resolvedLocale, route: null })
+    const imageUrl = buildEventOgImageUrl({
+      eventSlug: slug,
+      locale: resolvedLocale,
+      version: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+    })
+    const socialImage = {
+      url: imageUrl,
+      width: 1200,
+      height: 630,
+      alt: `${title} on ${siteName}`,
+      type: 'image/png',
+    } as const
+    return {
+      title,
+      description,
+      openGraph: {
+        type: 'website',
+        url: pageUrl,
+        title,
+        description,
+        siteName,
+        images: [socialImage],
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title,
+        description,
+        images: [socialImage],
+      },
+    }
+  }
+
   return await buildEventPageMetadata({
     eventSlug: slug,
     locale: resolvedLocale,

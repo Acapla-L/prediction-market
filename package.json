@@ -17,6 +17,7 @@
     "lint": "eslint . --fix",
     "test": "vitest run",
     "test:e2e": "npx playwright test",
+    "test:smoke": "npx playwright test --config playwright.smoke.config.ts",
     "test:unit": "vitest run",
     "prepare": "husky",
     "db:push": "node scripts/migrate.js"

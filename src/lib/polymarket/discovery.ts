@@ -2,6 +2,7 @@ import type { DiscoveredEventRow } from '@/lib/db/queries/discovered-events'
 import type { EventPageContentData } from '@/lib/event-page-data'
 import type { DiscoveredPolymarketSlug } from '@/lib/polymarket/constants'
 import type { DiscoveredMarketsPayload } from '@/lib/polymarket/normalize-discovery-payload'
+import type { ThemeSiteIdentity } from '@/lib/theme-site-identity'
 import type { Event, Market, Outcome } from '@/types'
 import { cacheTag } from 'next/cache'
 import { z } from 'zod'
@@ -12,6 +13,7 @@ import {
 
 } from '@/lib/polymarket/constants'
 import { getDiscoveredSlugMetadata } from '@/lib/polymarket/discovered-slugs'
+import { loadRuntimeThemeState } from '@/lib/theme-settings'
 import 'server-only'
 
 const DiscoveredMarketsPayloadSchema = z.object({
@@ -230,5 +232,43 @@ export async function loadDiscoveredEventPageData(slug: string): Promise<EventPa
     changeLogEntries: [],
     seriesEvents: [],
     liveChartConfig: null,
+  }
+}
+
+export interface DiscoveredEventShellData {
+  row: DiscoveredEventRow | null
+  site: ThemeSiteIdentity
+}
+
+/**
+ * Sidecar shell loader for `generateMetadata`. Mirrors `loadEventPageShellData`
+ * (event-page-data.ts) for the discovery code path.
+ *
+ * Why this exists: discovery slugs are NOT in the Kuest events table, so the
+ * Kuest path's `loadEventPageShellData` returns `title: null` and
+ * `buildEventPageMetadata` calls `notFound()`. That `notFound()` fires from
+ * inside `generateMetadata` — Next.js streams it independently via RSC and
+ * injects `NEXT_HTTP_ERROR_FALLBACK;404` into the stream after the page has
+ * already rendered, flipping a correctly-rendered discovery page to the
+ * not-found boundary mid-render (React error #419 hydration mismatch).
+ *
+ * Wrapped in `'use cache'` with the per-slug discoveredEvent tag (so the sync
+ * route's `revalidateTag` busts metadata cleanly) and the settings tag (so
+ * site-name changes from the admin panel propagate to discovery metadata).
+ * Symmetric with the Kuest path's caching contract.
+ */
+export async function loadDiscoveredEventShellData(slug: string): Promise<DiscoveredEventShellData> {
+  'use cache'
+  cacheTag(cacheTags.discoveredEvent(slug))
+  cacheTag(cacheTags.settings)
+
+  const [{ data: row }, runtimeTheme] = await Promise.all([
+    DiscoveredEventsRepository.getBySlug(slug),
+    loadRuntimeThemeState(),
+  ])
+
+  return {
+    row: row ?? null,
+    site: runtimeTheme.site,
   }
 }
