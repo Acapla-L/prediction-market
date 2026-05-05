@@ -146,6 +146,31 @@ describe('discovery — buildSyntheticEvent shape', () => {
     expect(event.creator).toBe('polymarket-discovered')
   })
 
+  it('sets enable_neg_risk + neg_risk on event so EventChart renders multi-market chart', () => {
+    // Without these flags, EventChart short-circuits at line 1086 (`shouldHideChart`)
+    // for multi-market events and renders only meta-info instead of the price-history
+    // chart — see docs/audits/discovery-chart-gap-2026-05-05.md.
+    const row = makeRow()
+    const payload = JSON.parse(row.marketsPayload) as Parameters<typeof buildSyntheticEvent>[1]
+    const event = buildSyntheticEvent(row, payload)
+
+    expect(event.enable_neg_risk).toBe(true)
+    expect(event.neg_risk).toBe(true)
+  })
+
+  it('sets neg_risk: true on every synthetic market', () => {
+    // Mirrors the `negRisk: true` value Polymarket Gamma returns for every market
+    // on these event types. Read by resolution-timeline-builder (cosmetic) and
+    // EventOrderPanelForm.isNegRiskMarket (fallback path).
+    const row = makeRow()
+    const payload = JSON.parse(row.marketsPayload) as Parameters<typeof buildSyntheticEvent>[1]
+    const event = buildSyntheticEvent(row, payload)
+
+    for (const market of event.markets) {
+      expect(market.neg_risk).toBe(true)
+    }
+  })
+
   it('every market gets a namespaced synthetic condition_id', () => {
     const row = makeRow()
     const payload = JSON.parse(row.marketsPayload) as Parameters<typeof buildSyntheticEvent>[1]

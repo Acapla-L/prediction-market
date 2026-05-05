@@ -131,6 +131,13 @@ function buildSyntheticMarket(
     price: yesPrice ?? 0,
     probability,
     outcomes,
+    // All discovered Polymarket events are neg-risk multi-outcome futures by
+    // contract — see DISCOVERED_POLYMARKET_SLUGS in lib/polymarket/constants.ts.
+    // The flag is read by `resolution-timeline-builder` (cosmetic) and by
+    // `EventOrderPanelForm` as fallback for `isNegRiskMarket`. Mirrors the
+    // `negRisk: true` value Polymarket Gamma returns for every market on these
+    // event types.
+    neg_risk: true,
     condition: {
       id: conditionId,
       oracle: SYNTHETIC_CONDITION_PREFIX,
@@ -186,6 +193,16 @@ export function buildSyntheticEvent(
     main_tag: mainTag,
     is_bookmarked: false,
     is_trending: false,
+    // All discovered Polymarket events are neg-risk multi-outcome futures
+    // (winner-take-all over N exclusive teams/clubs) — this is the design
+    // contract of the DISCOVERED_POLYMARKET_SLUGS allowlist. Without these
+    // flags, EventChart short-circuits at line 1086 (`shouldHideChart`) and
+    // renders only meta-info instead of the price-history chart, even though
+    // useEventPriceHistory successfully fetches Polymarket data. Mirrors the
+    // `enableNegRisk: true` / `negRisk: true` values Polymarket Gamma returns
+    // for these event types.
+    enable_neg_risk: true,
+    neg_risk: true,
   }
 }
 
