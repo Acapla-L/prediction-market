@@ -333,6 +333,20 @@ async function createSyncPolymarketGamesRefreshCron(sql, siteUrl, cronSecret) {
   })
 }
 
+async function createSyncPolymarketTeamsCron(sql, siteUrl, cronSecret) {
+  // Hourly teams sync — populates team metadata (logos, names) for the
+  // sports template. Offset to minute 17 to avoid collision with existing
+  // hourly crons (sync-polymarket-discovery at :07, sync-polymarket-games-discovery at :13).
+  // Phase B v2 plan §D and §F.
+  await createSyncCron(sql, {
+    jobName: 'sync-polymarket-teams',
+    schedule: '17 * * * *',
+    endpointPath: '/api/sync/polymarket-teams',
+    siteUrl,
+    cronSecret,
+  })
+}
+
 async function resolveCronExtensionCapabilities(sql) {
   const result = await sql`
     SELECT
@@ -375,6 +389,7 @@ async function configureSupabaseScheduler(sql, siteUrl, cronSecret) {
   await createSyncPolymarketDiscoveryCron(sql, siteUrl, cronSecret)
   await createSyncPolymarketGamesDiscoveryCron(sql, siteUrl, cronSecret)
   await createSyncPolymarketGamesRefreshCron(sql, siteUrl, cronSecret)
+  await createSyncPolymarketTeamsCron(sql, siteUrl, cronSecret)
 }
 
 function resolveMigrationConnectionString() {

@@ -3,14 +3,26 @@ import type { PolymarketEvent } from '@/lib/polymarket/types'
 /**
  * Per-market entry in the Phase B per-game JSON envelope. Distinct from
  * Phase A v2's `DiscoveredMarketPayloadEntry` because Phase B carries
- * `market_type` (always `'moneyline'` in MVP) and `question` (Polymarket-
- * supplied label), and omits `short_title` (futures-specific).
+ * `market_type` (one of moneyline/nrfi/spreads/totals — Phase B v2 captures
+ * all 4 section types per game) and `question` (Polymarket-supplied label),
+ * and omits `short_title` (futures-specific).
  */
 export interface DiscoveredGameMarketEntry {
   polymarket_market_id: string
   slug: string
   question: string
-  market_type: 'moneyline'
+  /**
+   * Phase B v2 expansion. MVP captured `'moneyline'` only. v2 captures all
+   * four section types so the sports template can group markets by section
+   * via existing `buildSportsGamesCardGroups` / `buildButtons` helpers.
+   */
+  market_type: 'moneyline' | 'nrfi' | 'spreads' | 'totals'
+  /**
+   * Phase B v2 line value for spreads (e.g. -1.5) and totals (e.g. 7.5, 8.5).
+   * `null` for moneyline + nrfi (no line concept). Sourced from Polymarket
+   * Gamma's `line` field on each market.
+   */
+  line: number | null
   outcomes: readonly [string, string] | null
   outcome_prices: readonly [string, string] | null
   clob_token_ids: readonly [string, string] | null
@@ -26,8 +38,9 @@ export interface DiscoveredGameMarketsPayload {
   /** Game start time (gameStartTime from Gamma). Cached in payload as a sidecar. */
   game_start_time: string
   /**
-   * Filtered markets list. MVP: exactly one entry (moneyline only). v2/v3
-   * may extend with spread/total entries; the schema stays the same.
+   * Filtered markets list. Phase B v2: up to 5 entries per game (one per
+   * Polymarket market section: moneyline + nrfi + spreads + 1-2 totals at
+   * different lines). MVP captured exactly one entry (moneyline only).
    */
   markets: ReadonlyArray<DiscoveredGameMarketEntry>
 }
@@ -55,6 +68,13 @@ export interface NormalizedGameEvent {
  * in the bundle.
  *
  * Returns `null` if the event has no markets.
+ *
+ * NOTE: Phase B v2 normalizer no longer uses this function — it now captures
+ * ALL markets via `mapAllMarkets`. Retained as an exported helper because
+ * `pickMoneylineMarket` is still used elsewhere (and by tests). It also
+ * remains useful for any single-market consumer (e.g. the future
+ * `gameStartTime` source-of-truth which Polymarket attaches to every market
+ * but which logically refers to the whole game).
  */
 export function pickMoneylineMarket(event: PolymarketEvent): PolymarketEvent['markets'][number] | null {
   if (event.markets.length === 0) {
@@ -67,6 +87,50 @@ export function pickMoneylineMarket(event: PolymarketEvent): PolymarketEvent['ma
   }
 
   return event.markets[0] ?? null
+}
+
+/**
+ * Phase B v2: Maps EVERY market in a Polymarket per-game event to a
+ * `DiscoveredGameMarketEntry`. Replaces the moneyline-only filter so the
+ * sports template can group all 5 sections (moneyline / nrfi / spreads /
+ * totals) at render time.
+ *
+ * Markets that lack tradeable price/token data (placeholder markets that
+ * Polymarket hasn't fully populated yet) are filtered out — same gating
+ * the original `pickMoneylineMarket` consumer applied.
+ *
+ * Each entry preserves Polymarket's `sportsMarketType` (defaults to
+ * `'moneyline'` only when source omits the field — Phase A v2 futures
+ * never call this function so the default is a safe fallback for malformed
+ * per-game entries) and `line` (null for moneyline/nrfi).
+ */
+export function mapAllMarkets(event: PolymarketEvent): DiscoveredGameMarketEntry[] {
+  const entries: DiscoveredGameMarketEntry[] = []
+  for (const market of event.markets) {
+    if (!market.outcomes || !market.outcomePrices || !market.clobTokenIds) {
+      continue
+    }
+    entries.push({
+      polymarket_market_id: market.id,
+      slug: market.slug ?? event.slug,
+      question: market.groupItemTitle || event.title || market.id,
+      market_type: market.sportsMarketType ?? 'moneyline',
+      line: market.line ?? null,
+      outcomes: market.outcomes,
+      // outcomePrices is parsed as numeric tuple; persist as string tuple
+      // for schema parity with discovered_polymarket_events.
+      outcome_prices: [
+        String(market.outcomePrices[0]),
+        String(market.outcomePrices[1]),
+      ],
+      clob_token_ids: market.clobTokenIds,
+      volume: market.volume ?? null,
+      is_active: market.active,
+      is_closed: market.closed,
+      icon_url: market.iconUrl ?? null,
+    })
+  }
+  return entries
 }
 
 /**
@@ -101,13 +165,18 @@ export function parseTeamLabels(title: string | undefined): {
  * Maps a Polymarket Gamma per-game event to the row + payload shape stored
  * in `discovered_polymarket_games`. Pure function — no I/O, no DB.
  *
+ * Phase B v2: captures ALL markets per event (up to 5 sections — moneyline,
+ * nrfi, spreads, totals × N lines). Previous Phase B MVP captured moneyline
+ * only.
+ *
  * Returns `null` if:
  *   - The event has no markets (degenerate case)
  *   - The event lacks `createdAt` (Phase B requires this field for chart range)
  *   - The moneyline market lacks `gameStartTime` (Phase B requires it; lives
  *     at the MARKET level on Polymarket Gamma, NOT the event level — verified
  *     via real fixture)
- *   - The moneyline market lacks tradeable price/token data (degenerate)
+ *   - All markets lack tradeable price/token data (degenerate; `mapAllMarkets`
+ *     filters those out and would return an empty array)
  */
 export function normalizeGamesDiscoveryPayload(
   event: PolymarketEvent,
@@ -117,21 +186,21 @@ export function normalizeGamesDiscoveryPayload(
     return null
   }
 
+  // gameStartTime lives at the MARKET level on Polymarket Gamma per-game
+  // responses (not the event level). The moneyline market is the source-of-
+  // truth for the whole game's tipoff/first-pitch — every market in a per-
+  // game response carries the same `gameStartTime`, but pulling from the
+  // moneyline keeps a single canonical source.
   const moneyline = pickMoneylineMarket(event)
   if (!moneyline) {
     return null
   }
-
-  // gameStartTime lives at the MARKET level on Polymarket Gamma per-game
-  // responses (not the event level). Pulled from the moneyline market to
-  // represent the game's tipoff/first-pitch.
   if (!moneyline.gameStartTime) {
     return null
   }
 
-  // Skip if Polymarket hasn't populated tradable fields yet — placeholder
-  // markets exist briefly between event creation and listing.
-  if (!moneyline.outcomes || !moneyline.outcomePrices || !moneyline.clobTokenIds) {
+  const allEntries = mapAllMarkets(event)
+  if (allEntries.length === 0) {
     return null
   }
 
@@ -143,32 +212,16 @@ export function normalizeGamesDiscoveryPayload(
   const endDate = event.endDate ? new Date(event.endDate) : null
   const endDateValue = endDate && !Number.isNaN(endDate.getTime()) ? endDate : null
 
-  const payloadEntry: DiscoveredGameMarketEntry = {
-    polymarket_market_id: moneyline.id,
-    slug: moneyline.slug ?? event.slug,
-    question: moneyline.groupItemTitle || event.title || moneyline.id,
-    market_type: 'moneyline',
-    outcomes: moneyline.outcomes,
-    // outcomePrices is parsed as numeric tuple; persist as string tuple for
-    // schema parity with discovered_polymarket_events (avoids drift between
-    // payload shapes when consumers parse).
-    outcome_prices: [
-      String(moneyline.outcomePrices[0]),
-      String(moneyline.outcomePrices[1]),
-    ],
-    clob_token_ids: moneyline.clobTokenIds,
-    volume: moneyline.volume ?? null,
-    is_active: moneyline.active,
-    is_closed: moneyline.closed,
-    icon_url: moneyline.iconUrl ?? null,
-  }
-
   const payload: DiscoveredGameMarketsPayload = {
     event_created_at: event.createdAt,
     game_start_time: moneyline.gameStartTime,
-    markets: [payloadEntry],
+    markets: allEntries,
   }
 
+  // Event-level is_active / is_closed mirror the moneyline market — the
+  // moneyline IS the matchup, so its active/closed state defines the game's
+  // overall status. Other section markets may close earlier (NRFI resolves
+  // after the 1st inning) but the row-level flags follow the moneyline.
   return {
     slug: event.slug,
     league: leagueSlug,

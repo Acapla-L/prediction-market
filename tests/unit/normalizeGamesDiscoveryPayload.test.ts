@@ -2,6 +2,7 @@ import type { PolymarketEvent } from '@/lib/polymarket/types'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import {
   normalizeGamesDiscoveryPayload,
   parseTeamLabels,
@@ -11,11 +12,20 @@ import {
 // Sample MLB event constructed to mirror Polymarket Gamma's per-game shape
 // observed in `tests/fixtures/polymarket-gamma-mlb-per-game-response.json`.
 //
+// Phase B v2 update: each event now carries the full multi-section market
+// bundle that real Polymarket per-game responses return — moneyline + nrfi
+// + spreads + 2 totals (5 markets total). The Moneyline market has
+// `groupItemTitle: undefined` (Polymarket convention — market IS the matchup)
+// while every other market section carries a `groupItemTitle` (`NRFI`,
+// `Spread -1.5`, `O/U 7.5`, `O/U 8.5`).
+//
 // Key conformance to real-API shape:
 //   - `gameStartTime` lives at the MARKET level, not the event level.
 //   - The Moneyline market (slug exact-matches the parent event slug) has
-//     `groupItemTitle: undefined` (Polymarket convention — market IS the
-//     matchup, no team name to label).
+//     `groupItemTitle: undefined`.
+//   - Every market carries `sportsMarketType` (one of the 4 enum values).
+//   - `line` is `undefined`/null for moneyline + nrfi, numeric for
+//     spreads + totals.
 function buildSampleMlbEvent(overrides: Partial<PolymarketEvent> = {}): PolymarketEvent {
   return {
     slug: 'mlb-tex-nyy-2026-05-05',
@@ -47,6 +57,28 @@ function buildSampleMlbEvent(overrides: Partial<PolymarketEvent> = {}): Polymark
         slug: 'mlb-tex-nyy-2026-05-05',
         iconUrl: null,
         gameStartTime: '2026-05-05 23:05:00+00',
+        sportsMarketType: 'moneyline',
+        line: null,
+      },
+      {
+        id: '6092915',
+        conditionId: '0xabcdnrfi',
+        groupItemTitle: 'NRFI',
+        active: true,
+        closed: false,
+        outcomes: ['Yes', 'No'],
+        outcomePrices: [0.45, 0.55],
+        clobTokenIds: ['nrfi1', 'nrfi2'],
+        bestBid: null,
+        bestAsk: null,
+        lastTradePrice: null,
+        volume: 5123.45,
+        volume24hr: null,
+        slug: 'mlb-tex-nyy-2026-05-05-nrfi',
+        iconUrl: null,
+        gameStartTime: '2026-05-05 23:05:00+00',
+        sportsMarketType: 'nrfi',
+        line: null,
       },
       {
         id: '6092913',
@@ -65,6 +97,8 @@ function buildSampleMlbEvent(overrides: Partial<PolymarketEvent> = {}): Polymark
         slug: 'mlb-tex-nyy-2026-05-05-spread-home-1pt5',
         iconUrl: null,
         gameStartTime: '2026-05-05 23:05:00+00',
+        sportsMarketType: 'spreads',
+        line: -1.5,
       },
       {
         id: '6092914',
@@ -83,6 +117,28 @@ function buildSampleMlbEvent(overrides: Partial<PolymarketEvent> = {}): Polymark
         slug: 'mlb-tex-nyy-2026-05-05-total-8pt5',
         iconUrl: null,
         gameStartTime: '2026-05-05 23:05:00+00',
+        sportsMarketType: 'totals',
+        line: 8.5,
+      },
+      {
+        id: '6092916',
+        conditionId: '0xabcdtotal2',
+        groupItemTitle: 'O/U 9.5',
+        active: true,
+        closed: false,
+        outcomes: ['Over', 'Under'],
+        outcomePrices: [0.4, 0.6],
+        clobTokenIds: ['totalA1', 'totalA2'],
+        bestBid: null,
+        bestAsk: null,
+        lastTradePrice: null,
+        volume: 12345.67,
+        volume24hr: null,
+        slug: 'mlb-tex-nyy-2026-05-05-total-9pt5',
+        iconUrl: null,
+        gameStartTime: '2026-05-05 23:05:00+00',
+        sportsMarketType: 'totals',
+        line: 9.5,
       },
     ],
     ...overrides,
@@ -179,21 +235,27 @@ describe('normalizeGamesDiscoveryPayload', () => {
     expect(result!.end_date).toBeInstanceOf(Date)
   })
 
-  it('payload contains exactly ONE market entry (moneyline only — MVP scope)', () => {
+  it('payload contains ALL section markets (Phase B v2 multi-section)', () => {
     const event = buildSampleMlbEvent()
     const result = normalizeGamesDiscoveryPayload(event, 'mlb')
 
-    expect(result!.payload.markets).toHaveLength(1)
-    expect(result!.payload.markets[0].market_type).toBe('moneyline')
-    expect(result!.payload.markets[0].polymarket_market_id).toBe('6092912')
+    // Phase B v2: every active section in the source event is projected as a
+    // payload entry. Sample event has 5 markets (1 moneyline + 1 nrfi + 1
+    // spread + 2 totals at different lines). Replaces the MVP single-entry
+    // contract.
+    expect(result!.payload.markets).toHaveLength(5)
+    const moneyline = result!.payload.markets.find(m => m.market_type === 'moneyline')
+    expect(moneyline).toBeDefined()
+    expect(moneyline!.polymarket_market_id).toBe('6092912')
   })
 
   it('payload moneyline outcomes match the event title order', () => {
     const event = buildSampleMlbEvent()
     const result = normalizeGamesDiscoveryPayload(event, 'mlb')
 
-    expect(result!.payload.markets[0].outcomes).toEqual(['Texas Rangers', 'NY Yankees'])
-    expect(result!.payload.markets[0].outcome_prices).toEqual(['0.0005', '0.9995'])
+    const moneyline = result!.payload.markets.find(m => m.market_type === 'moneyline')
+    expect(moneyline!.outcomes).toEqual(['Texas Rangers', 'NY Yankees'])
+    expect(moneyline!.outcome_prices).toEqual(['0.0005', '0.9995'])
   })
 
   it('payload preserves event_created_at for chart ALL-range', () => {
@@ -202,6 +264,50 @@ describe('normalizeGamesDiscoveryPayload', () => {
 
     expect(result!.payload.event_created_at).toBe('2026-04-29T13:00:18.813855Z')
     expect(result!.payload.game_start_time).toBe('2026-05-05 23:05:00+00')
+  })
+
+  it('emits one entry per market_type with line populated correctly', () => {
+    // Phase B v2 test: drift-locks `mapAllMarkets` against the contract that
+    // every section-type's `market_type` and `line` are surfaced into the
+    // payload. moneyline + nrfi → line=null; spreads + totals → numeric line.
+    const event = buildSampleMlbEvent()
+    const result = normalizeGamesDiscoveryPayload(event, 'mlb')
+
+    const byType = result!.payload.markets.reduce<Record<string, typeof result.payload.markets[number][]>>(
+      (acc, market) => {
+        acc[market.market_type] = acc[market.market_type] ?? []
+        acc[market.market_type].push(market)
+        return acc
+      },
+      {},
+    )
+
+    expect(byType.moneyline).toHaveLength(1)
+    expect(byType.moneyline[0].line).toBeNull()
+
+    expect(byType.nrfi).toHaveLength(1)
+    expect(byType.nrfi[0].line).toBeNull()
+
+    expect(byType.spreads).toHaveLength(1)
+    expect(byType.spreads[0].line).toBe(-1.5)
+
+    expect(byType.totals).toHaveLength(2)
+    const totalsLines = byType.totals.map(m => m.line).sort((a, b) => (a ?? 0) - (b ?? 0))
+    expect(totalsLines).toEqual([8.5, 9.5])
+  })
+
+  it('every payload market entry has market_type and line populated', () => {
+    // Field-presence drift-lock: even if a future refactor changes the
+    // mapper, every entry must still carry both fields (string + number/null).
+    const event = buildSampleMlbEvent()
+    const result = normalizeGamesDiscoveryPayload(event, 'mlb')
+
+    result!.payload.markets.forEach((entry) => {
+      expect(typeof entry.market_type).toBe('string')
+      expect(['moneyline', 'nrfi', 'spreads', 'totals']).toContain(entry.market_type)
+      // line is number-or-null — never undefined
+      expect(entry.line === null || typeof entry.line === 'number').toBe(true)
+    })
   })
 
   it('returns null when moneyline market lacks gameStartTime (market-level)', () => {
@@ -263,11 +369,9 @@ describe('normalizeGamesDiscoveryPayload', () => {
   })
 
   it('reflects closed=true when moneyline market is closed', () => {
+    const base = buildSampleMlbEvent()
     const event = buildSampleMlbEvent({
-      markets: [{
-        ...buildSampleMlbEvent().markets[0],
-        closed: true,
-      }],
+      markets: base.markets.map((m, i) => (i === 0 ? { ...m, closed: true } : m)),
     })
     const result = normalizeGamesDiscoveryPayload(event, 'mlb')
     expect(result!.is_closed).toBe(true)
@@ -291,6 +395,11 @@ describe('normalizeGamesDiscoveryPayload — end-to-end against real Polymarket 
   // test exercises the post-mapper PolymarketEvent shape. Kept inline because
   // the mapper is internal to client.ts; the polymarket-client integration
   // test asserts the schema → mapper contract separately.
+  //
+  // Phase B v2 expansion: also forwards `sportsMarketType` and `line`. Real
+  // Gamma responses carry these fields directly on each market entry; the
+  // production mapper picks them up via the relaxed Zod schema in
+  // `games-discovery.ts`.
   function gammaEventToPolymarketEvent(raw: any): PolymarketEvent {
     return {
       slug: raw.slug,
@@ -319,6 +428,8 @@ describe('normalizeGamesDiscoveryPayload — end-to-end against real Polymarket 
         slug: m.slug,
         iconUrl: m.icon ?? null,
         gameStartTime: m.gameStartTime,
+        sportsMarketType: m.sportsMarketType,
+        line: typeof m.line === 'number' ? m.line : null,
       })),
     }
   }
@@ -349,8 +460,12 @@ describe('normalizeGamesDiscoveryPayload — end-to-end against real Polymarket 
       expect(normalized.slug).toBe(raw.slug)
       expect(normalized.league).toBe('mlb')
       expect(normalized.title).toBe(raw.title)
-      expect(normalized.payload.markets).toHaveLength(1) // moneyline-only MVP
-      expect(normalized.payload.markets[0].market_type).toBe('moneyline')
+      // Phase B v2: every fixture event carries 5 markets (1 moneyline + 1
+      // nrfi + 1 spread + 2 totals). The MVP single-market contract is
+      // replaced by the multi-section contract.
+      expect(normalized.payload.markets).toHaveLength(5)
+      const moneyline = normalized.payload.markets.find(m => m.market_type === 'moneyline')
+      expect(moneyline).toBeDefined()
       expect(normalized.payload.event_created_at).toBe(raw.createdAt)
       // game_start_time pulled from the moneyline MARKET, not the event
       const moneylineMarket = raw.markets.find((m: any) => m.slug === raw.slug)
@@ -379,8 +494,212 @@ describe('normalizeGamesDiscoveryPayload — end-to-end against real Polymarket 
       'mlb',
     )
     // Empty groupItemTitle → falls back to event.title via the `||` chain
-    expect(result!.payload.markets[0].question).toBe(
-      (fixture[0] as any).title,
-    )
+    const moneyline = result!.payload.markets.find(m => m.market_type === 'moneyline')
+    expect(moneyline!.question).toBe((fixture[0] as any).title)
+  })
+
+  it('every market entry on every fixture event carries market_type and line', () => {
+    // Multi-section field-presence drift-lock against real fixture data.
+    // Confirms `mapAllMarkets` projects every market section (not just
+    // moneyline) and each carries both fields.
+    const fixture = loadRealFixture()
+    const results = fixture
+      .map((raw: any) => normalizeGamesDiscoveryPayload(gammaEventToPolymarketEvent(raw), 'mlb'))
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+
+    const allMarketTypes = new Set<string>()
+    results.forEach((normalized) => {
+      normalized.payload.markets.forEach((entry) => {
+        // Every entry carries a valid enum value
+        expect(['moneyline', 'nrfi', 'spreads', 'totals']).toContain(entry.market_type)
+        allMarketTypes.add(entry.market_type)
+        // Every entry carries either a number line OR explicit null —
+        // never undefined.
+        expect(entry.line === null || typeof entry.line === 'number').toBe(true)
+        // Section-specific line-presence rules:
+        if (entry.market_type === 'moneyline' || entry.market_type === 'nrfi') {
+          expect(entry.line).toBeNull()
+        }
+        else {
+          // spreads + totals must carry a numeric line (verified via real
+          // fixture: spreads -1.5, totals 7.5 / 8.5 / 9.5 / 10.5)
+          expect(typeof entry.line).toBe('number')
+        }
+      })
+    })
+
+    // Confirm we exercised all 4 section types across the 3-event fixture
+    expect(allMarketTypes).toEqual(new Set(['moneyline', 'nrfi', 'spreads', 'totals']))
+  })
+})
+
+describe('discoveredGameMarketsPayloadSchema — back-compat (Adjustment 3 drift-lock)', () => {
+  // Replica of the production Zod schema from
+  // `platform/src/lib/polymarket/games-discovery.ts:14-45`. Inlined here
+  // because that schema is not exported (lives behind 'server-only'). If the
+  // production schema changes, this replica MUST be updated to match —
+  // failure to do so means this drift-lock loses its bite. The test name
+  // calls this out so future refactors hit the test failure first.
+  //
+  // The critical invariant locked here: `line: z.number().nullable().default(null)`.
+  // The `.default(null)` is required for back-compat with existing 50
+  // production MLB rows in `discovered_polymarket_games.markets_payload` that
+  // predate the `line` field. Without `.default(null)`, Zod would reject
+  // `undefined` (distinct from `null` in Zod's type system) and every legacy
+  // row would fail to parse → 404 cascade.
+  const ReplicaSchema = z.object({
+    event_created_at: z.string(),
+    game_start_time: z.string(),
+    markets: z.array(z.object({
+      polymarket_market_id: z.string(),
+      slug: z.string(),
+      question: z.string(),
+      market_type: z.enum(['moneyline', 'nrfi', 'spreads', 'totals']),
+      line: z.number().nullable().default(null),
+      outcomes: z.tuple([z.string(), z.string()]).nullable(),
+      outcome_prices: z.tuple([z.string(), z.string()]).nullable(),
+      clob_token_ids: z.tuple([z.string(), z.string()]).nullable(),
+      volume: z.number().nullable(),
+      is_active: z.boolean(),
+      is_closed: z.boolean(),
+      icon_url: z.string().nullable(),
+    })),
+  })
+
+  it('parses a legacy payload that omits the `line` field on each market', () => {
+    // Simulates a row written by the pre-Adjustment-3 sync code (no `line`
+    // field on any market entry). Adjustment 3's `.default(null)` modifier
+    // must absorb the missing field and emit `line: null` on each parsed
+    // entry.
+    const legacyPayload = {
+      event_created_at: '2026-04-29T13:00:18.813855Z',
+      game_start_time: '2026-05-05 23:05:00+00',
+      markets: [
+        {
+          polymarket_market_id: '6092912',
+          slug: 'mlb-tex-nyy-2026-05-05',
+          question: 'Texas Rangers vs. New York Yankees',
+          market_type: 'moneyline' as const,
+          // line: intentionally omitted
+          outcomes: ['Texas Rangers', 'NY Yankees'] as [string, string],
+          outcome_prices: ['0.0005', '0.9995'] as [string, string],
+          clob_token_ids: ['1392827111', '4408994222'] as [string, string],
+          volume: 401789.74,
+          is_active: true,
+          is_closed: false,
+          icon_url: null,
+        },
+      ],
+    }
+
+    const parsed = ReplicaSchema.safeParse(legacyPayload)
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) {
+      return // narrowing
+    }
+    expect(parsed.data.markets).toHaveLength(1)
+    // Critical invariant: missing `line` becomes explicit `null`, NOT
+    // `undefined`. This is what `.default(null)` guarantees.
+    expect(parsed.data.markets[0].line).toBeNull()
+    expect(parsed.data.markets[0].line).not.toBeUndefined()
+  })
+
+  it('parses a payload with `line` explicitly set to null', () => {
+    // Sanity: explicit null still works post-Adjustment-3.
+    const payload = {
+      event_created_at: '2026-04-29T13:00:18.813855Z',
+      game_start_time: '2026-05-05 23:05:00+00',
+      markets: [
+        {
+          polymarket_market_id: 'm1',
+          slug: 'slug-1',
+          question: 'Q',
+          market_type: 'nrfi' as const,
+          line: null,
+          outcomes: ['Yes', 'No'] as [string, string],
+          outcome_prices: ['0.5', '0.5'] as [string, string],
+          clob_token_ids: ['t1', 't2'] as [string, string],
+          volume: 0,
+          is_active: true,
+          is_closed: false,
+          icon_url: null,
+        },
+      ],
+    }
+    const parsed = ReplicaSchema.safeParse(payload)
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) {
+      return
+    }
+    expect(parsed.data.markets[0].line).toBeNull()
+  })
+
+  it('parses a payload with `line` set to a numeric value (spreads/totals)', () => {
+    const payload = {
+      event_created_at: '2026-04-29T13:00:18.813855Z',
+      game_start_time: '2026-05-05 23:05:00+00',
+      markets: [
+        {
+          polymarket_market_id: 'm1',
+          slug: 'slug-1-spread',
+          question: 'Spread (-1.5)',
+          market_type: 'spreads' as const,
+          line: -1.5,
+          outcomes: ['Home', 'Away'] as [string, string],
+          outcome_prices: ['0.51', '0.49'] as [string, string],
+          clob_token_ids: ['t1', 't2'] as [string, string],
+          volume: 100,
+          is_active: true,
+          is_closed: false,
+          icon_url: null,
+        },
+        {
+          polymarket_market_id: 'm2',
+          slug: 'slug-1-total',
+          question: 'O/U 8.5',
+          market_type: 'totals' as const,
+          line: 8.5,
+          outcomes: ['Over', 'Under'] as [string, string],
+          outcome_prices: ['0.55', '0.45'] as [string, string],
+          clob_token_ids: ['t3', 't4'] as [string, string],
+          volume: 200,
+          is_active: true,
+          is_closed: false,
+          icon_url: null,
+        },
+      ],
+    }
+    const parsed = ReplicaSchema.safeParse(payload)
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) {
+      return
+    }
+    expect(parsed.data.markets[0].line).toBe(-1.5)
+    expect(parsed.data.markets[1].line).toBe(8.5)
+  })
+
+  it('rejects payload with invalid market_type enum value', () => {
+    // Sanity: the enum is enforced — typo in market_type would fail.
+    const badPayload = {
+      event_created_at: '2026-04-29T13:00:18.813855Z',
+      game_start_time: '2026-05-05 23:05:00+00',
+      markets: [
+        {
+          polymarket_market_id: 'm1',
+          slug: 'slug-1',
+          question: 'Q',
+          market_type: 'unknown_type', // not in enum
+          line: null,
+          outcomes: ['Yes', 'No'] as [string, string],
+          outcome_prices: ['0.5', '0.5'] as [string, string],
+          clob_token_ids: ['t1', 't2'] as [string, string],
+          volume: 0,
+          is_active: true,
+          is_closed: false,
+          icon_url: null,
+        },
+      ],
+    }
+    expect(ReplicaSchema.safeParse(badPayload).success).toBe(false)
   })
 })
