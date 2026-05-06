@@ -173,14 +173,24 @@ export default function ResolutionTimelinePanel({
   const t = useExtracted()
   const normalizeOutcomeLabel = useOutcomeLabel()
   const siteIdentity = useSiteIdentity()
-  const [nowMs, setNowMs] = useState(() => Date.now())
+  // Cache Components: initialize to null and populate via useEffect post-mount.
+  // Calling Date.now() directly in render (e.g. as a useState initializer) is a
+  // Cache Components prerender violation per
+  // https://nextjs.org/docs/messages/next-prerender-current-time-client
+  const [nowMs, setNowMs] = useState<number | null>(null)
   const yesOutcomeText = market.outcomes.find(outcome => outcome.outcome_index === OUTCOME_INDEX.YES)?.outcome_text
   const noOutcomeText = market.outcomes.find(outcome => outcome.outcome_index === OUTCOME_INDEX.NO)?.outcome_text
   const yesOutcomeLabel = (yesOutcomeText ? normalizeOutcomeLabel(yesOutcomeText) : '') || yesOutcomeText || t('Yes')
   const noOutcomeLabel = (noOutcomeText ? normalizeOutcomeLabel(noOutcomeText) : '') || noOutcomeText || t('No')
 
+  useEffect(() => {
+    if (nowMs === null) {
+      setNowMs(Date.now())
+    }
+  }, [nowMs])
+
   const timeline = useMemo(
-    () => buildResolutionTimeline(market, { nowMs }),
+    () => (nowMs === null ? null : buildResolutionTimeline(market, { nowMs })),
     [market, nowMs],
   )
   const disputeUrl = useMemo(
@@ -188,10 +198,10 @@ export default function ResolutionTimelinePanel({
     [market.condition, siteIdentity.name],
   )
 
-  const hasActiveCountdown = timeline.items.some(item =>
+  const hasActiveCountdown = timeline?.items.some(item =>
     (item.type === 'finalReview' || item.type === 'disputeWindow')
     && item.state === 'active'
-    && (item.remainingSeconds ?? 0) > 0)
+    && (item.remainingSeconds ?? 0) > 0) ?? false
 
   useEffect(() => {
     if (!hasActiveCountdown) {
@@ -207,7 +217,10 @@ export default function ResolutionTimelinePanel({
     }
   }, [hasActiveCountdown])
 
-  if (timeline.items.length === 0) {
+  // Defer rendering until post-hydration when `nowMs` is populated. Phase B
+  // per-game cache-boundary fix — prevents the Cache Components prerender
+  // violation that the prior `useState(() => Date.now())` initializer caused.
+  if (timeline === null || timeline.items.length === 0) {
     return null
   }
 

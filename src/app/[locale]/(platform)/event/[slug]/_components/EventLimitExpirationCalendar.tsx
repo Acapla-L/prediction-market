@@ -2,7 +2,7 @@
 
 import { Clock2Icon } from 'lucide-react'
 import { useExtracted } from 'next-intl'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
@@ -47,14 +47,32 @@ export default function EventLimitExpirationCalendar({
   applyLabel,
 }: EventLimitExpirationCalendarProps) {
   const t = useExtracted()
-  const [minTimestampMs] = useState(() => Date.now())
-  const [internalDate, setInternalDate] = useState<Date>(() => value ?? new Date(minTimestampMs))
-  const minDate = new Date(minTimestampMs)
-  const selectedDate = value ?? internalDate
-  const timeValue = formatTimeInput(selectedDate)
+  // Cache Components: defer Date.now() to post-mount. Calling it in the
+  // useState initializer is a Cache Components prerender violation per
+  // https://nextjs.org/docs/messages/next-prerender-current-time-client
+  const [minTimestampMs, setMinTimestampMs] = useState<number | null>(null)
+  const [internalDate, setInternalDate] = useState<Date | null>(null)
+  useEffect(() => {
+    if (minTimestampMs === null) {
+      const now = Date.now()
+      setMinTimestampMs(now)
+      if (internalDate === null) {
+        setInternalDate(value ?? new Date(now))
+      }
+    }
+  }, [minTimestampMs, internalDate, value])
   const showActions = Boolean(onCancel || onApply)
   const resolvedCancelLabel = cancelLabel ?? t('Cancel')
   const resolvedApplyLabel = applyLabel ?? t('Apply')
+
+  // Defer rendering until post-hydration once the timestamp populates. Placed
+  // after all hooks to preserve React's rules-of-hooks.
+  if (minTimestampMs === null || internalDate === null) {
+    return null
+  }
+  const minDate = new Date(minTimestampMs)
+  const selectedDate = value ?? internalDate
+  const timeValue = formatTimeInput(selectedDate)
 
   function handleChange(nextDate: Date, nextTime = timeValue) {
     const mergedDate = mergeDateAndTime(nextDate, nextTime)

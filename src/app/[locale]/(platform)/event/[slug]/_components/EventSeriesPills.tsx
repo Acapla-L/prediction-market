@@ -13,7 +13,11 @@ import { cn } from '@/lib/utils'
 const MAX_PAST_RESULT_BADGES = 5
 const LIVE_TRADING_WINDOW_MS = 24 * 60 * 60 * 1000
 const NOW_TICK_INTERVAL_MS = 1000
-let nowTimestampStore = Date.now()
+// Cache Components: initialize to 0 sentinel (matches `getServerNowTimestampSnapshot`).
+// `subscribeToNowTimestamp` populates the real timestamp on first client-side
+// subscribe. Calling `Date.now()` at module top is a Cache Components prerender
+// violation per https://nextjs.org/docs/messages/next-prerender-current-time-client
+let nowTimestampStore = 0
 const nowTimestampListeners = new Set<() => void>()
 let nowTimestampInterval: number | null = null
 

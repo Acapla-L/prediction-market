@@ -4317,24 +4317,35 @@ export default function SportsEventCenter({
           {activeTradeContext
             ? (
                 <div className="grid gap-6">
-                  <EventOrderPanelForm
-                    isMobile={false}
-                    event={activeCard.event}
-                    oddsFormat={oddsFormat}
-                    outcomeButtonStyleVariant="sports3d"
-                    optimisticallyClaimedConditionIds={claimedConditionIds}
-                    outcomeLabelOverrides={orderPanelOutcomeLabelOverrides}
-                    outcomeAccentOverrides={orderPanelOutcomeAccentOverrides}
-                    desktopMarketInfo={(
-                      <SportsOrderPanelMarketInfo
-                        card={activeCard}
-                        selectedButton={activeTradeHeaderContext?.button ?? activeTradeContext.button}
-                        selectedOutcome={activeTradeHeaderContext?.outcome ?? activeTradeContext.outcome}
-                        marketType={activeTradeHeaderContext?.button.marketType ?? activeTradeContext.button.marketType}
-                      />
-                    )}
-                    primaryOutcomeIndex={activeTradePrimaryOutcomeIndex}
-                  />
+                  {/*
+                    Cache Components: wrap the order panel in <Suspense> because
+                    its wallet/balance subtree transitively imports
+                    @reown/appkit-controllers, which contains a Math.random()
+                    fallback in CoreHelperUtil.getUUID. That fallback is a
+                    Cache Components prerender violation per
+                    https://nextjs.org/docs/messages/next-prerender-random-client
+                    The Suspense boundary defers prerender of this subtree.
+                  */}
+                  <Suspense fallback={null}>
+                    <EventOrderPanelForm
+                      isMobile={false}
+                      event={activeCard.event}
+                      oddsFormat={oddsFormat}
+                      outcomeButtonStyleVariant="sports3d"
+                      optimisticallyClaimedConditionIds={claimedConditionIds}
+                      outcomeLabelOverrides={orderPanelOutcomeLabelOverrides}
+                      outcomeAccentOverrides={orderPanelOutcomeAccentOverrides}
+                      desktopMarketInfo={(
+                        <SportsOrderPanelMarketInfo
+                          card={activeCard}
+                          selectedButton={activeTradeHeaderContext?.button ?? activeTradeContext.button}
+                          selectedOutcome={activeTradeHeaderContext?.outcome ?? activeTradeContext.outcome}
+                          marketType={activeTradeHeaderContext?.button.marketType ?? activeTradeContext.button.marketType}
+                        />
+                      )}
+                      primaryOutcomeIndex={activeTradePrimaryOutcomeIndex}
+                    />
+                  </Suspense>
                   <EventOrderPanelTermsDisclaimer />
                   <SportsEventRelatedGames
                     cards={relatedCards}
@@ -4354,24 +4365,27 @@ export default function SportsEventCenter({
       </div>
 
       {isMobile && activeTradeContext && (
-        <EventOrderPanelMobile
-          event={activeCard.event}
-          showDefaultTrigger={false}
-          oddsFormat={oddsFormat}
-          outcomeButtonStyleVariant="sports3d"
-          optimisticallyClaimedConditionIds={claimedConditionIds}
-          outcomeLabelOverrides={orderPanelOutcomeLabelOverrides}
-          outcomeAccentOverrides={orderPanelOutcomeAccentOverrides}
-          mobileMarketInfo={(
-            <SportsOrderPanelMarketInfo
-              card={activeCard}
-              selectedButton={activeTradeHeaderContext?.button ?? activeTradeContext.button}
-              selectedOutcome={activeTradeHeaderContext?.outcome ?? activeTradeContext.outcome}
-              marketType={activeTradeHeaderContext?.button.marketType ?? activeTradeContext.button.marketType}
-            />
-          )}
-          primaryOutcomeIndex={activeTradePrimaryOutcomeIndex}
-        />
+        // Cache Components: same Suspense rationale as the desktop panel above.
+        <Suspense fallback={null}>
+          <EventOrderPanelMobile
+            event={activeCard.event}
+            showDefaultTrigger={false}
+            oddsFormat={oddsFormat}
+            outcomeButtonStyleVariant="sports3d"
+            optimisticallyClaimedConditionIds={claimedConditionIds}
+            outcomeLabelOverrides={orderPanelOutcomeLabelOverrides}
+            outcomeAccentOverrides={orderPanelOutcomeAccentOverrides}
+            mobileMarketInfo={(
+              <SportsOrderPanelMarketInfo
+                card={activeCard}
+                selectedButton={activeTradeHeaderContext?.button ?? activeTradeContext.button}
+                selectedOutcome={activeTradeHeaderContext?.outcome ?? activeTradeContext.outcome}
+                marketType={activeTradeHeaderContext?.button.marketType ?? activeTradeContext.button.marketType}
+              />
+            )}
+            primaryOutcomeIndex={activeTradePrimaryOutcomeIndex}
+          />
+        </Suspense>
       )}
 
       {redeemSectionConfig && (
