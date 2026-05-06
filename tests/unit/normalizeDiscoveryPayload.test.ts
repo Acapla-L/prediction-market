@@ -10,6 +10,7 @@ const FULL_EVENT: PolymarketEvent = {
   id: '33506',
   title: 'UEFA Champions League Winner',
   endDate: '2026-05-31T00:00:00Z',
+  createdAt: '2025-07-21T20:58:38.352062Z',
   markets: [
     {
       id: 'ucl-arsenal',
@@ -90,6 +91,21 @@ describe('normalizeDiscoveryPayload', () => {
     }
     const payload = normalizeDiscoveryPayload(empty)
     expect(payload.markets).toEqual([])
+  })
+
+  it('extracts event_created_at from Gamma createdAt for the chart ALL-range lower bound', () => {
+    const payload = normalizeDiscoveryPayload(FULL_EVENT)
+    expect(payload.event_created_at).toBe('2025-07-21T20:58:38.352062Z')
+  })
+
+  it('omits event_created_at when Gamma did not return createdAt (backwards-compat)', () => {
+    const noCreatedAt: PolymarketEvent = {
+      slug: 'edge-case',
+      markets: [],
+      // createdAt intentionally omitted
+    }
+    const payload = normalizeDiscoveryPayload(noCreatedAt)
+    expect(payload.event_created_at).toBeUndefined()
   })
 })
 

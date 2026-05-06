@@ -129,6 +129,34 @@ test.describe('discovery + FIFA event pages render with expected title and chart
         { message: `chart SVG present for ${slug}`, timeout: 10_000 },
       ).toBeGreaterThan(0)
 
+      // §3b — Chart time-range gate. The chart should display historical data,
+      // not just a degenerate "now" window. Pre-fix, discovery slugs rendered
+      // with `event.created_at = lastSyncedAt` (NOW per hourly cron), so the
+      // chart's ALL range was ~1 hour. Post-fix, `created_at` comes from the
+      // Polymarket Gamma `createdAt` field (months/years ago), so the chart
+      // shows the full history.
+      //
+      // Implementation: count Recharts `path` elements that have a meaningful
+      // `d` attribute (i.e. the LineChart curve actually has many segments,
+      // not just the chart frame). At minimum 10 distinct path commands —
+      // each data point becomes 1 line segment in the curve, so 10+ commands
+      // implies at least ~10 historical data points rendered.
+      await expect.poll(
+        async () => page.evaluate(() => {
+          const paths = Array.from(document.querySelectorAll('svg path'))
+          // Find chart curve paths (have many SVG path commands like 'L' / 'M' / 'C')
+          // — the chart frame paths have only 1-2 commands, real data curves have many.
+          const curveCommandCounts = paths.map((p) => {
+            const d = p.getAttribute('d') ?? ''
+            // Count SVG path command letters (M, L, C, etc.)
+            return (d.match(/[MLCSQTAZ]/gi) ?? []).length
+          })
+          // Largest single-curve command count = approximate data point count.
+          return Math.max(0, ...curveCommandCounts)
+        }),
+        { message: `chart has ≥10 data points for ${slug} (locks the time-range fix)`, timeout: 10_000 },
+      ).toBeGreaterThanOrEqual(10)
+
       // §4 — React #419 (hydration mismatch) is the canonical signature of the
       // metadata bug even when the page LOOKS correct. Fail if it shows up.
       const hydrationErrors = consoleErrors.filter(text =>

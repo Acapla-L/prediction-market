@@ -171,6 +171,32 @@ describe('discovery — buildSyntheticEvent shape', () => {
     }
   })
 
+  it('uses payload.event_created_at as Event.created_at when present (chart ALL-range fix)', () => {
+    // Without this, the chart's ALL range starts at lastSyncedAt (NOW per cron)
+    // and only shows ~1 hour of history. With it, the range covers full
+    // Polymarket history. See docs/audits/discovery-chart-time-range-gap-2026-05-05.md.
+    const row = makeRow()
+    const payload = JSON.parse(row.marketsPayload) as Parameters<typeof buildSyntheticEvent>[1]
+    const withCreatedAt = { ...payload, event_created_at: '2025-07-21T20:58:38.352062Z' }
+    const event = buildSyntheticEvent(row, withCreatedAt)
+
+    expect(event.created_at).toBe('2025-07-21T20:58:38.352062Z')
+    // updated_at remains lastSyncedAt — represents "last refreshed" not creation
+    expect(event.updated_at).toBe(row.lastSyncedAt)
+  })
+
+  it('falls back to lastSyncedAt when payload.event_created_at is absent (backwards-compat)', () => {
+    // Older sidecar rows synced before the field was added don't have
+    // event_created_at — synthetic Event must still build without crashing.
+    // Next hourly sync overwrites with the real Polymarket creation date.
+    const row = makeRow()
+    const payload = JSON.parse(row.marketsPayload) as Parameters<typeof buildSyntheticEvent>[1]
+    expect(payload.event_created_at).toBeUndefined()
+    const event = buildSyntheticEvent(row, payload)
+
+    expect(event.created_at).toBe(row.lastSyncedAt)
+  })
+
   it('every market gets a namespaced synthetic condition_id', () => {
     const row = makeRow()
     const payload = JSON.parse(row.marketsPayload) as Parameters<typeof buildSyntheticEvent>[1]
