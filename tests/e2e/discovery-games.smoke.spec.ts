@@ -184,7 +184,7 @@ test.describe('Phase B per-game discovery: sports event pages render with multi-
     }])
   })
 
-  test('per-game pages render with multi-section markets, team logos, and chart', async ({ page, request, baseURL }) => {
+  test('per-game pages render with multi-section markets, team logos, and chart', async ({ page, baseURL }) => {
     if (!SMOKE_CASES) {
       throw new Error('beforeAll must run first')
     }
@@ -287,22 +287,28 @@ test.describe('Phase B per-game discovery: sports event pages render with multi-
           },
         ).toBeGreaterThanOrEqual(1)
 
-        // §7 — 308 redirect from /en/event/<slug> to /en/sports/<sport>/<slug>.
-        // PreWork.1 may ship as 307 (temporary) or 308 (permanent). We accept
-        // either and verify the Location header points at the sports route.
-        // Use request.get with maxRedirects: 0 so we capture the raw redirect
-        // status (Playwright's APIRequestContext follows by default).
-        const redirectResponse = await request.get(`${baseURL}/en/event/${slug}`, {
-          maxRedirects: 0,
+        // §7 — Redirect chain from /en/event/<slug> ends at /sports/<sport>/<slug>.
+        // The chain has TWO hops: next-intl middleware strips the /en/ locale
+        // prefix first (producing 307 to /event/<slug>), THEN our per-game
+        // redirect fires (307 or 308 depending on PreWork.1) to /sports/<sport>/<slug>.
+        // We follow the full chain and assert the FINAL URL is the sports
+        // route — this is more robust than asserting on the first hop's Location
+        // header (which would be the locale-stripped intermediate, not our redirect).
+        // Use page.request (NOT the standalone request fixture) — page.request
+        // shares cookies with the page context, so the wp_access cookie set in
+        // beforeEach authenticates the call. Without that, the access gate
+        // intercepts and returns 307 to /access?next=... instead of our redirect.
+        const redirectResponse = await page.request.get(`${baseURL}/en/event/${slug}`, {
+          maxRedirects: 5,
         })
         expect(
-          [307, 308],
-          `redirect status from /en/event/${slug} (PreWork.1 ships either)`,
-        ).toContain(redirectResponse.status())
-        const location = redirectResponse.headers().location ?? ''
+          redirectResponse.status(),
+          `final HTTP status after following /en/event/${slug} chain`,
+        ).toBeLessThan(400)
+        const finalUrl = redirectResponse.url()
         expect(
-          location,
-          `Location header points at sports route for ${slug}`,
+          finalUrl,
+          `final URL after redirect chain points at sports route for ${slug}`,
         ).toContain(`/sports/${sportRouteSlug}/${slug}`)
 
         // §8 — No React #419 hydration errors. Canonical signature of the
@@ -326,7 +332,7 @@ test.describe('Phase B per-game discovery: sports event pages render with multi-
   // smoke run. Drift-locks the `notFound()`-outside-`'use cache'` invariant
   // on the live deploy: if the cache-boundary fix regresses, this assertion
   // catches the HTTP 200 + not-found-UI failure mode that produces React #419.
-  test('cache-boundary fix: nonexistent sports slug returns HTTP 404 (not 200 + Oops)', async ({ request, baseURL }) => {
+  test('cache-boundary fix: nonexistent sports slug returns HTTP 404 (not 200 + Oops)', async ({ page, baseURL }) => {
     if (!baseURL) {
       throw new Error('baseURL required')
     }
@@ -334,8 +340,12 @@ test.describe('Phase B per-game discovery: sports event pages render with multi-
     // Deliberately nonexistent slug (impossible date, fake teams). The slug
     // pattern must still match the league regex so the route enters the
     // discovery branch — otherwise we'd hit a different not-found code path.
+    // Use page.request (NOT the standalone request fixture) — page.request
+    // shares cookies with the page context, so the wp_access cookie set in
+    // beforeEach authenticates the call. Without that, the access gate
+    // intercepts and returns 200 (the access page) instead of the route's 404.
     const nonexistentSlug = 'mlb-zzz-yyy-1999-01-01'
-    const response = await request.get(`${baseURL}/en/sports/baseball/${nonexistentSlug}`, {
+    const response = await page.request.get(`${baseURL}/en/sports/baseball/${nonexistentSlug}`, {
       maxRedirects: 5,
     })
 
