@@ -3,7 +3,7 @@
 import type { Market } from '@/types'
 import { CalendarIcon } from 'lucide-react'
 import { useExtracted } from 'next-intl'
-import { useId, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useMemo, useState, useSyncExternalStore } from 'react'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -236,13 +236,22 @@ function EventChartExportDialogBody({
   const t = useExtracted()
   const optionsListId = useId()
   const eventStartDate = useMemo(() => new Date(eventCreatedAt), [eventCreatedAt])
-  const openedAt = useMemo(() => new Date(Date.now()), [])
+  // Cache Components: defer "opened-at" computation to post-hydration. Calling
+  // Date.now() / new Date() in render is a Cache Components prerender violation
+  // per https://nextjs.org/docs/messages/next-prerender-current-time-client
+  const [openedAt, setOpenedAt] = useState<Date | null>(null)
+  useEffect(() => {
+    if (openedAt === null) {
+      setOpenedAt(new Date())
+    }
+  }, [openedAt])
   const [frequency, setFrequency] = useState<Frequency>(defaultFrequency)
-  const [fromDate, setFromDate] = useState<Date>(() => getDefaultFromDate(
-    defaultFrequency,
-    eventStartDate,
-    openedAt,
-  ))
+  const [fromDate, setFromDate] = useState<Date | null>(null)
+  useEffect(() => {
+    if (fromDate === null && openedAt !== null) {
+      setFromDate(getDefaultFromDate(defaultFrequency, eventStartDate, openedAt))
+    }
+  }, [fromDate, openedAt, defaultFrequency, eventStartDate])
   const [calendarOpen, setCalendarOpen] = useState(false)
   const [selectedOptions, setSelectedOptions] = useState<string[]>([])
   const [isDownloading, setIsDownloading] = useState(false)
@@ -251,12 +260,13 @@ function EventChartExportDialogBody({
     getNavigatorLanguage,
     () => fallbackLocale,
   )
-  const toDate = openedAt
 
   function handleFrequencyChange(value: string) {
     const nextFrequency = value as Frequency
     setFrequency(nextFrequency)
-    setFromDate(getDefaultFromDate(nextFrequency, eventStartDate, toDate))
+    if (openedAt !== null) {
+      setFromDate(getDefaultFromDate(nextFrequency, eventStartDate, openedAt))
+    }
   }
 
   const optionItems = useMemo(
@@ -282,8 +292,22 @@ function EventChartExportDialogBody({
   const allOptionIds = useMemo(() => optionItems.map(item => item.id), [optionItems])
   const allSelected = optionItems.length > 0 && selectedOptions.length === optionItems.length
 
+  // Cache Components: defer rendering until post-hydration once `openedAt` and
+  // `fromDate` are populated. Placed AFTER all hook calls so React's
+  // rules-of-hooks (consistent hook order) is preserved across renders.
+  if (openedAt === null || fromDate === null) {
+    return null
+  }
+  const toDate = openedAt
+
   async function handleDownload() {
     if (isDownloading) {
+      return
+    }
+    // Guard for TypeScript flow-analysis after the post-hooks early-return —
+    // the dialog body cannot render until both are populated, so this is
+    // unreachable at runtime when the user can click download.
+    if (fromDate === null || toDate === null) {
       return
     }
     setIsDownloading(true)
