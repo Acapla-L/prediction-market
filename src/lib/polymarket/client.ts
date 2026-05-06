@@ -85,7 +85,23 @@ const GammaMarketSchema = z.object({
   // Phase A v2 futures markets do not include either. Surfaced into the
   // sidecar payload entries via `normalize-games-discovery-payload.ts` so
   // the sports route can group markets by section.
-  sportsMarketType: z.enum(['moneyline', 'nrfi', 'spreads', 'totals']).optional(),
+  sportsMarketType: z.enum([
+    'moneyline',
+    'nrfi',
+    'spreads',
+    'totals',
+    'first_half_moneyline',
+    'first_half_spreads',
+    'first_half_totals',
+    // Phase B v2 v2: player-prop markets are accepted by the schema so they
+    // pass Zod parsing, then filtered downstream in `mapAllMarkets` via
+    // `PLAYER_PROP_MARKET_TYPES`. Without these enum values, NBA per-game
+    // events containing player-prop markets would fail the entire event's
+    // Zod parse and the whole game would be dropped from discovery.
+    'points',
+    'rebounds',
+    'assists',
+  ]).optional(),
   line: z.number().nullable().optional(),
 })
 

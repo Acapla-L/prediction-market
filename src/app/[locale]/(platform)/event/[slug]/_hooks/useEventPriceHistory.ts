@@ -37,8 +37,12 @@ const POLYMARKET_OVERLAY_SLUGS_INLINE: ReadonlySet<string> = new Set<string>([
 // server-side module would drag `'server-only'` into the client bundle and
 // break the Turbopack build. Patterns instead of literals because per-game
 // slugs are unbounded (~22 active games/day at MLB peak) and can't be enumerated.
+//
+// Multi-league as of Phase B v2 v2 (2026-05-06): MLB + NBA + NHL.
 const DISCOVERED_GAME_SLUG_PATTERNS_INLINE: readonly RegExp[] = [
   /^mlb-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
+  /^nba-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
+  /^nhl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
 ] as const
 
 function isInlineDiscoveryGameSlug(slug: string): boolean {

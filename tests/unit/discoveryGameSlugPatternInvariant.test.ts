@@ -4,8 +4,10 @@ import { describe, expect, it } from 'vitest'
 import { DISCOVERED_POLYMARKET_SLUGS, FIFA_EVENT_SLUG } from '@/lib/polymarket/constants'
 import {
   DISCOVERED_GAMES_LEAGUES,
+  getLeagueForGameSlug,
   isDiscoveryGameSlug,
 } from '@/lib/polymarket/games-leagues'
+import { parseGameSlugTeams } from '@/lib/polymarket/synthesize-sports-card'
 
 /**
  * Drift detector: the inline `DISCOVERED_GAME_SLUG_PATTERNS_INLINE` array in
@@ -52,10 +54,23 @@ describe('client-inline per-game slug patterns match server-side league registry
     expect(inline).toHaveLength(DISCOVERED_GAMES_LEAGUES.length)
   })
 
-  it('mVP single-league lock — exactly 1 inline pattern (MLB only)', () => {
+  it('multi-league lock — every server league pattern appears exactly once in the inline array', () => {
+    // Phase B v2 v2 (2026-05-06): registry expanded to MLB + NBA + NHL.
+    // Replaces the MVP "exactly 1 inline pattern (MLB only)" assertion. The
+    // count + per-league presence checks together guarantee:
+    //   (a) the inline array length matches the server registry size, AND
+    //   (b) each league's `slugPattern.source` is present (not just any 3
+    //       arbitrary regex strings).
     const inline = extractInlinePatterns(source)
-    expect(inline).toHaveLength(1)
-    expect(inline[0]).toBe('^mlb-[a-z0-9]+-[a-z0-9]+-\\d{4}-\\d{2}-\\d{2}$')
+    expect(inline).toHaveLength(DISCOVERED_GAMES_LEAGUES.length)
+
+    DISCOVERED_GAMES_LEAGUES.forEach((league) => {
+      const occurrences = inline.filter(p => p === league.slugPattern.source).length
+      expect(
+        occurrences,
+        `league ${league.slug} (${league.slugPattern.source}) should appear exactly once in the inline array`,
+      ).toBe(1)
+    })
   })
 })
 
@@ -127,5 +142,50 @@ describe('isDiscoveryGameSlug — Phase A v2 futures non-match invariant', () =>
         ).toBe(false)
       })
     })
+  })
+
+  it('parses NHL utah 4-char abbreviation correctly (regression drift-lock)', () => {
+    // NHL Utah Mammoth uses a 4-char abbreviation `utah` (vs the 2-3 char
+    // convention shared by every other team). This drift-lock catches any
+    // future regex tightening that would silently reject 4-char abbreviations
+    // and break Utah games.
+    //
+    // The current league regex `^nhl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$`
+    // already accepts arbitrary `[a-z0-9]+` segments, so any tightening would
+    // be a regression detected here.
+    const utahSlug = 'nhl-utah-bos-2026-05-06'
+
+    // (a) Server registry must accept the slug
+    const nhlEntry = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'nhl')
+    expect(nhlEntry, 'NHL league entry should be registered').toBeDefined()
+    expect(nhlEntry!.slugPattern.test(utahSlug), 'NHL slug pattern must match 4-char utah abbreviation').toBe(true)
+
+    // (b) Top-level dispatcher matches
+    expect(isDiscoveryGameSlug(utahSlug), 'isDiscoveryGameSlug should match nhl-utah-bos slug').toBe(true)
+    expect(getLeagueForGameSlug(utahSlug)?.slug, 'getLeagueForGameSlug should resolve to nhl').toBe('nhl')
+
+    // (c) Client-side mirror in the hook source must also accept it. We
+    // re-extract the inline patterns from `useEventPriceHistory.ts` (same
+    // mechanism as the byte-identical drift-lock above) and test the regex
+    // bodies. This guards against the case where the server registry grows
+    // a 4-char-friendly entry but the client mirror is updated with a
+    // tighter regex by accident.
+    const HOOK_PATH_LOCAL = resolve(
+      __dirname,
+      '..',
+      '..',
+      'src/app/[locale]/(platform)/event/[slug]/_hooks/useEventPriceHistory.ts',
+    )
+    const hookSource = readFileSync(HOOK_PATH_LOCAL, 'utf8')
+    const inlineSources = extractInlinePatterns(hookSource)
+    const matchesAnyInlinePattern = inlineSources.some(s => new RegExp(s).test(utahSlug))
+    expect(matchesAnyInlinePattern, 'at least one client-side inline pattern should match the utah slug').toBe(true)
+
+    // (d) Projection layer parser handles 4-char correctly
+    const parsed = parseGameSlugTeams(utahSlug)
+    expect(parsed, 'parseGameSlugTeams should not return null').not.toBeNull()
+    expect(parsed!.league).toBe('nhl')
+    expect(parsed!.awayAbbr).toBe('utah')
+    expect(parsed!.homeAbbr).toBe('bos')
   })
 })

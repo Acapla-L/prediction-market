@@ -1,9 +1,8 @@
 /**
  * Phase B per-game discovery — league registry.
  *
- * MVP: MLB only. The Phase B execution plan §H locks single-league + single
- * market-type to keep the first ship narrow. Adding NBA, NHL, NFL, EPL is
- * one ship per league per the v2 plan.
+ * MVP shipped: MLB (Phase B v2 v1, 2026-05-06).
+ * Phase B v2 v2 ship (2026-05-06): NBA + NHL.
  *
  * Each league entry pairs:
  *   - `slug`             — short identifier used in our slug pattern + URL
@@ -21,12 +20,8 @@
  * Slug examples:
  *   - `mlb-tex-nyy-2026-05-05`         — Texas at Yankees, May 5, 2026
  *   - `mlb-cin-chc-2026-05-05`         — Cincinnati at Cubs, May 5, 2026
- *
- * Future leagues (NOT yet active):
- *   - NBA series_id 10345, slug pattern /^nba-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/, sportRouteSlug 'basketball'
- *   - NHL series_id 10346, slug pattern /^nhl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/, sportRouteSlug 'hockey'
- *   - NFL series_id 10187, slug pattern /^nfl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/, sportRouteSlug 'football'
- *   - EPL series_id 10188, slug pattern /^epl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/, sportRouteSlug 'soccer'
+ *   - `nba-min-sas-2026-05-06`         — Minnesota at San Antonio, May 6, 2026
+ *   - `nhl-ana-las-2026-05-06`         — Anaheim at Las Vegas, May 6, 2026
  */
 
 export interface DiscoveredGamesLeague {
@@ -35,6 +30,23 @@ export interface DiscoveredGamesLeague {
   slugPattern: RegExp
   mainTag: string
   sportRouteSlug: string
+  /**
+   * Per-league all-star / exhibition placeholder abbreviations to filter from
+   * the teams_cache sync. Optional; defaults to empty Set for leagues without
+   * placeholder entries in Polymarket's /teams response.
+   *
+   * Source-of-truth migration (Phase B v2 v2): replaces the hardcoded
+   * `LEAGUE_PLACEHOLDER_ABBREVIATIONS` Set previously in
+   * `polymarket-teams/route.ts`. The route now reads this field per-league.
+   */
+  placeholderAbbreviations?: ReadonlySet<string>
+  /**
+   * Optional event-level filter applied during discovery sync. Returns true if
+   * the slug should be persisted; false to skip. Default behavior (when
+   * undefined): persist every event. Phase B v2 v3 (soccer) will use this to
+   * filter UCL sub-events; Phase B v2 v2 leagues all leave it undefined.
+   */
+  subEventFilter?: (eventSlug: string) => boolean
 }
 
 export const DISCOVERED_GAMES_LEAGUES: readonly DiscoveredGamesLeague[] = [
@@ -44,6 +56,23 @@ export const DISCOVERED_GAMES_LEAGUES: readonly DiscoveredGamesLeague[] = [
     slugPattern: /^mlb-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
     mainTag: 'mlb',
     sportRouteSlug: 'baseball',
+    placeholderAbbreviations: new Set(['al', 'nl']),
+  },
+  {
+    slug: 'nba',
+    seriesId: '10345',
+    slugPattern: /^nba-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
+    mainTag: 'nba',
+    sportRouteSlug: 'basketball',
+    placeholderAbbreviations: new Set(['crs', 'cgs', 'sog', 'kys', 'world', 'stars', 'stripes']),
+  },
+  {
+    slug: 'nhl',
+    seriesId: '10346',
+    slugPattern: /^nhl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
+    mainTag: 'nhl',
+    sportRouteSlug: 'hockey',
+    placeholderAbbreviations: new Set(['finnhl', 'cannhl', 'swenhl', 'usanhl']),
   },
 ] as const
 

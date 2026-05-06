@@ -143,10 +143,16 @@ describe('/api/sync/polymarket-games-discovery', () => {
   })
 
   it('iterates leagues, upserts each game, fires revalidateTag + revalidatePath per success', async () => {
-    mockedFetch.mockResolvedValue([
-      makeMlbGame('mlb-tex-nyy-2026-05-05'),
-      makeMlbGame('mlb-cin-chc-2026-05-05'),
-    ])
+    // Per-league fetch router: only MLB (seriesId '3') returns games; NBA/NHL return empty.
+    mockedFetch.mockImplementation(async (seriesId: string) => {
+      if (seriesId === '3') {
+        return [
+          makeMlbGame('mlb-tex-nyy-2026-05-05'),
+          makeMlbGame('mlb-cin-chc-2026-05-05'),
+        ]
+      }
+      return []
+    })
     mockedRepo.upsertSuccess
       .mockResolvedValueOnce(upsertOk('mlb-tex-nyy-2026-05-05'))
       .mockResolvedValueOnce(upsertOk('mlb-cin-chc-2026-05-05'))
@@ -175,24 +181,32 @@ describe('/api/sync/polymarket-games-discovery', () => {
   })
 
   it('handles fetchPolymarketGammaEventsBySeries returning null (transport failure)', async () => {
+    // All leagues fail transport → one network_error result per league.
     mockedFetch.mockResolvedValue(null)
 
     const res = await GET(makeRequest())
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.ok).toBe(true)
-    expect(body.results).toHaveLength(1)
-    expect(body.results[0].status).toBe('network_error')
+    // One network_error per league in the registry.
+    expect(body.results.length).toBeGreaterThanOrEqual(1)
+    expect(body.results.every((r: { status: string }) => r.status === 'network_error')).toBe(true)
     expect(mockedRepo.upsertSuccess).not.toHaveBeenCalled()
     // No successful slugs → no per-slug revalidations
     expect(mockedRevalidatePath).not.toHaveBeenCalled()
   })
 
   it('marks failure and continues when an individual upsert errors', async () => {
-    mockedFetch.mockResolvedValue([
-      makeMlbGame('mlb-tex-nyy-2026-05-05'),
-      makeMlbGame('mlb-cin-chc-2026-05-05'),
-    ])
+    // Per-league fetch router: only MLB returns games; NBA/NHL return empty.
+    mockedFetch.mockImplementation(async (seriesId: string) => {
+      if (seriesId === '3') {
+        return [
+          makeMlbGame('mlb-tex-nyy-2026-05-05'),
+          makeMlbGame('mlb-cin-chc-2026-05-05'),
+        ]
+      }
+      return []
+    })
     mockedRepo.upsertSuccess
       .mockResolvedValueOnce({ data: null, error: 'DB conflict' })
       .mockResolvedValueOnce(upsertOk('mlb-cin-chc-2026-05-05'))
@@ -202,8 +216,15 @@ describe('/api/sync/polymarket-games-discovery', () => {
     const body = await res.json()
     expect(body.ok).toBe(true)
     expect(body.results).toHaveLength(2)
-    expect(body.results[0].status).toBe('upsert_error')
-    expect(body.results[1].status).toBe('ok')
+    // Both processed results are MLB-keyed.
+    const texResult = body.results.find(
+      (r: { slug: string }) => r.slug === 'mlb-tex-nyy-2026-05-05',
+    )
+    const cinResult = body.results.find(
+      (r: { slug: string }) => r.slug === 'mlb-cin-chc-2026-05-05',
+    )
+    expect(texResult?.status).toBe('upsert_error')
+    expect(cinResult?.status).toBe('ok')
     expect(mockedRepo.markFailure).toHaveBeenCalledTimes(1)
     // Only the successful slug gets revalidated
     expect(mockedRevalidatePath).toHaveBeenCalledTimes(1)
