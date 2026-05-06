@@ -1,3 +1,4 @@
+import type { DiscoveredGamesLeague } from '@/lib/polymarket/games-leagues'
 import { revalidateTag } from 'next/cache'
 import { connection, NextResponse } from 'next/server'
 import { z } from 'zod'
@@ -49,24 +50,25 @@ const TeamSchema = z.object({
 const TeamsResponseSchema = z.array(TeamSchema)
 
 /**
- * League-level placeholder abbreviations (e.g. MLB returns the All-Star roster
+ * League-level placeholder filter (e.g. MLB returns the All-Star roster
  * placeholders "American" / "National" alongside the 30 real teams). These are
  * NOT real teams and must NOT be persisted to `teams_cache` — the projection
  * layer parses team abbreviations from per-game slugs and would never match
  * these. Conservative filter: skip if the abbreviation matches a known
- * league-level placeholder OR the name contains "All-Star".
+ * league-level placeholder (sourced from the league registry's
+ * `placeholderAbbreviations` field) OR the name contains "All-Star".
  *
- * Adding a league: append the placeholder abbreviations here. Surface the
- * skipped count in the per-league sync result so unexpected drops are
- * observable in cron logs.
+ * Source-of-truth migration (Phase B v2 v2): the per-league placeholder Set
+ * lives in `src/lib/polymarket/games-leagues.ts` (`DiscoveredGamesLeague.
+ * placeholderAbbreviations`), not here. Adding a league: populate that field
+ * on the registry entry. The route reads it per-league below.
  */
-const LEAGUE_PLACEHOLDER_ABBREVIATIONS: ReadonlySet<string> = new Set([
-  'al', // MLB American League all-stars
-  'nl', // MLB National League all-stars
-])
-
-function isLeaguePlaceholder(team: z.infer<typeof TeamSchema>): boolean {
-  if (LEAGUE_PLACEHOLDER_ABBREVIATIONS.has(team.abbreviation.toLowerCase())) {
+function isLeaguePlaceholder(
+  team: z.infer<typeof TeamSchema>,
+  league: DiscoveredGamesLeague,
+): boolean {
+  const placeholders = league.placeholderAbbreviations ?? new Set<string>()
+  if (placeholders.has(team.abbreviation.toLowerCase())) {
     return true
   }
   if (team.name.toLowerCase().includes('all-star')) {
@@ -178,7 +180,7 @@ async function handleTeamsSync(request: Request): Promise<NextResponse<TeamsSync
     let errorCount = 0
 
     for (const team of parsed.data) {
-      if (isLeaguePlaceholder(team)) {
+      if (isLeaguePlaceholder(team, league)) {
         skippedCount++
         continue
       }

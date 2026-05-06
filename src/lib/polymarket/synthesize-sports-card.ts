@@ -167,6 +167,12 @@ function toSportsMarketType(payloadType: DiscoveredGameMarketEntry['market_type'
       return 'spread'
     case 'totals':
       return 'total'
+    case 'first_half_moneyline':
+      return 'first_half_moneyline'
+    case 'first_half_spreads':
+      return 'first_half_spread'
+    case 'first_half_totals':
+      return 'first_half_total'
     case 'nrfi':
       return null
     default:

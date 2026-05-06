@@ -1,9 +1,10 @@
 import type { PolymarketEvent } from '@/lib/polymarket/types'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   DiscoveredGameMarketsPayloadSchema,
+  mapAllMarkets,
   normalizeGamesDiscoveryPayload,
   parseTeamLabels,
   pickMoneylineMarket,
@@ -681,5 +682,409 @@ describe('discoveredGameMarketsPayloadSchema — back-compat (Adjustment 3 drift
       ],
     }
     expect(DiscoveredGameMarketsPayloadSchema.safeParse(badPayload).success).toBe(false)
+  })
+})
+
+// ---- Phase B v2 v2 NBA enum + player-prop filter coverage ----------------
+
+describe('discoveredGameMarketsPayloadSchema — NBA enum extension (Phase B v2 v2)', () => {
+  it('accepts NBA first_half_* market_type values', () => {
+    // Drift-lock for the Phase B v2 v2 enum extension. NBA Polymarket Gamma
+    // responses include `first_half_moneyline`, `first_half_spreads`, and
+    // `first_half_totals` (verified via fixture). The schema MUST accept all
+    // three; rejection here would crash the discovery sync silently.
+    const payload = {
+      event_created_at: '2026-04-29T13:00:21.939504Z',
+      game_start_time: '2026-05-06 22:30:00+00',
+      markets: [
+        {
+          polymarket_market_id: 'fh-ml-1',
+          slug: 'nba-bos-lal-2026-05-06-1h-moneyline',
+          question: '1H Moneyline',
+          market_type: 'first_half_moneyline' as const,
+          line: null,
+          outcomes: ['Boston Celtics', 'Los Angeles Lakers'] as [string, string],
+          outcome_prices: ['0.55', '0.45'] as [string, string],
+          clob_token_ids: ['0x1', '0x2'] as [string, string],
+          volume: 0,
+          is_active: true,
+          is_closed: false,
+          icon_url: null,
+        },
+        {
+          polymarket_market_id: 'fh-sp-1',
+          slug: 'nba-bos-lal-2026-05-06-1h-spread-home-3pt5',
+          question: '1H Spread (-3.5)',
+          market_type: 'first_half_spreads' as const,
+          line: -3.5,
+          outcomes: ['Boston Celtics', 'Los Angeles Lakers'] as [string, string],
+          outcome_prices: ['0.50', '0.50'] as [string, string],
+          clob_token_ids: ['0x3', '0x4'] as [string, string],
+          volume: 100,
+          is_active: true,
+          is_closed: false,
+          icon_url: null,
+        },
+        {
+          polymarket_market_id: 'fh-to-1',
+          slug: 'nba-bos-lal-2026-05-06-1h-total-110pt5',
+          question: '1H O/U 110.5',
+          market_type: 'first_half_totals' as const,
+          line: 110.5,
+          outcomes: ['Over', 'Under'] as [string, string],
+          outcome_prices: ['0.51', '0.49'] as [string, string],
+          clob_token_ids: ['0x5', '0x6'] as [string, string],
+          volume: 50,
+          is_active: true,
+          is_closed: false,
+          icon_url: null,
+        },
+      ],
+    }
+    const result = DiscoveredGameMarketsPayloadSchema.safeParse(payload)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      const types = result.data.markets.map(m => m.market_type)
+      expect(types).toContain('first_half_moneyline')
+      expect(types).toContain('first_half_spreads')
+      expect(types).toContain('first_half_totals')
+    }
+  })
+
+  it('rejects payload with player-prop market_type values (NOT in persisted enum)', () => {
+    // The persisted-payload schema enum does NOT include `points`, `rebounds`,
+    // or `assists`. Production `mapAllMarkets` filters those out BEFORE
+    // persist. If a future regression accidentally widened the enum to include
+    // them, that would be a contract bug — this test detects it.
+    const payload = {
+      event_created_at: '2026-04-29T13:00:21.939504Z',
+      game_start_time: '2026-05-06 22:30:00+00',
+      markets: [
+        {
+          polymarket_market_id: 'pts-1',
+          slug: 'nba-bos-lal-2026-05-06-points-x-25pt5',
+          question: 'Points X 25.5',
+          market_type: 'points', // not in persisted enum
+          line: 25.5,
+          outcomes: ['Over', 'Under'] as [string, string],
+          outcome_prices: ['0.5', '0.5'] as [string, string],
+          clob_token_ids: ['0x1', '0x2'] as [string, string],
+          volume: 0,
+          is_active: true,
+          is_closed: false,
+          icon_url: null,
+        },
+      ],
+    }
+    expect(DiscoveredGameMarketsPayloadSchema.safeParse(payload).success).toBe(false)
+  })
+})
+
+describe('mapAllMarkets — NBA player-prop filter (Phase B v2 v2)', () => {
+  function buildSampleNbaEvent(): PolymarketEvent {
+    // Synthetic NBA event with mixed sections (moneyline + spreads +
+    // first_half_moneyline + 3 player-props). The mapper's player-prop
+    // filter must drop points/rebounds/assists before persist.
+    return {
+      slug: 'nba-bos-lal-2026-05-06',
+      id: '999001',
+      title: 'Boston Celtics vs. Los Angeles Lakers',
+      endDate: '2026-05-13T05:00:00Z',
+      createdAt: '2026-05-01T10:00:00Z',
+      negRisk: false,
+      enableNegRisk: false,
+      markets: [
+        {
+          id: 'm-ml',
+          conditionId: '0xml',
+          groupItemTitle: '',
+          active: true,
+          closed: false,
+          outcomes: ['Boston Celtics', 'Los Angeles Lakers'],
+          outcomePrices: [0.55, 0.45],
+          clobTokenIds: ['ml1', 'ml2'],
+          bestBid: null,
+          bestAsk: null,
+          lastTradePrice: null,
+          volume: 1000,
+          volume24hr: null,
+          slug: 'nba-bos-lal-2026-05-06',
+          iconUrl: null,
+          gameStartTime: '2026-05-06 22:30:00+00',
+          sportsMarketType: 'moneyline',
+          line: null,
+        },
+        {
+          id: 'm-sp',
+          conditionId: '0xsp',
+          groupItemTitle: 'Spread (-3.5)',
+          active: true,
+          closed: false,
+          outcomes: ['Boston Celtics', 'Los Angeles Lakers'],
+          outcomePrices: [0.51, 0.49],
+          clobTokenIds: ['sp1', 'sp2'],
+          bestBid: null,
+          bestAsk: null,
+          lastTradePrice: null,
+          volume: 200,
+          volume24hr: null,
+          slug: 'nba-bos-lal-2026-05-06-spread-home-3pt5',
+          iconUrl: null,
+          gameStartTime: '2026-05-06 22:30:00+00',
+          sportsMarketType: 'spreads',
+          line: -3.5,
+        },
+        {
+          id: 'm-fh-ml',
+          conditionId: '0xfhml',
+          groupItemTitle: '1H Moneyline',
+          active: true,
+          closed: false,
+          outcomes: ['Boston Celtics', 'Los Angeles Lakers'],
+          outcomePrices: [0.52, 0.48],
+          clobTokenIds: ['fhml1', 'fhml2'],
+          bestBid: null,
+          bestAsk: null,
+          lastTradePrice: null,
+          volume: 50,
+          volume24hr: null,
+          slug: 'nba-bos-lal-2026-05-06-1h-moneyline',
+          iconUrl: null,
+          gameStartTime: '2026-05-06 22:30:00+00',
+          sportsMarketType: 'first_half_moneyline',
+          line: null,
+        },
+        // Player-props — must be filtered:
+        {
+          id: 'm-pts',
+          conditionId: '0xpts',
+          groupItemTitle: 'Points X 25.5',
+          active: true,
+          closed: false,
+          outcomes: ['Over', 'Under'],
+          outcomePrices: [0.5, 0.5],
+          clobTokenIds: ['pts1', 'pts2'],
+          bestBid: null,
+          bestAsk: null,
+          lastTradePrice: null,
+          volume: 10,
+          volume24hr: null,
+          slug: 'nba-bos-lal-2026-05-06-points-x-25pt5',
+          iconUrl: null,
+          gameStartTime: '2026-05-06 22:30:00+00',
+          sportsMarketType: 'points',
+          line: 25.5,
+        },
+        {
+          id: 'm-reb',
+          conditionId: '0xreb',
+          groupItemTitle: 'Rebounds Y 8.5',
+          active: true,
+          closed: false,
+          outcomes: ['Over', 'Under'],
+          outcomePrices: [0.5, 0.5],
+          clobTokenIds: ['reb1', 'reb2'],
+          bestBid: null,
+          bestAsk: null,
+          lastTradePrice: null,
+          volume: 5,
+          volume24hr: null,
+          slug: 'nba-bos-lal-2026-05-06-rebounds-y-8pt5',
+          iconUrl: null,
+          gameStartTime: '2026-05-06 22:30:00+00',
+          sportsMarketType: 'rebounds',
+          line: 8.5,
+        },
+        {
+          id: 'm-ast',
+          conditionId: '0xast',
+          groupItemTitle: 'Assists Z 5.5',
+          active: true,
+          closed: false,
+          outcomes: ['Over', 'Under'],
+          outcomePrices: [0.5, 0.5],
+          clobTokenIds: ['ast1', 'ast2'],
+          bestBid: null,
+          bestAsk: null,
+          lastTradePrice: null,
+          volume: 3,
+          volume24hr: null,
+          slug: 'nba-bos-lal-2026-05-06-assists-z-5pt5',
+          iconUrl: null,
+          gameStartTime: '2026-05-06 22:30:00+00',
+          sportsMarketType: 'assists',
+          line: 5.5,
+        },
+      ],
+    }
+  }
+
+  it('filters NBA player-prop market types (points/rebounds/assists)', () => {
+    const event = buildSampleNbaEvent()
+    const entries = mapAllMarkets(event)
+
+    // Source has 6 markets. Player-prop filter drops 3 (points + rebounds +
+    // assists). Result: 3 entries (moneyline + spreads + first_half_moneyline).
+    expect(entries).toHaveLength(3)
+
+    const types = entries.map(e => e.market_type)
+    expect(types).toContain('moneyline')
+    expect(types).toContain('spreads')
+    expect(types).toContain('first_half_moneyline')
+
+    // Negative assertions: no player-prop type leaks through.
+    expect(types).not.toContain('points')
+    expect(types).not.toContain('rebounds')
+    expect(types).not.toContain('assists')
+  })
+
+  it('does not emit the missing-sportsMarketType warning for player-prop markets', () => {
+    // Player-props are filtered BEFORE the strict-enum + warning emission.
+    // The warning should only fire when sportsMarketType is null/undefined,
+    // never for explicit player-prop values.
+    const event = buildSampleNbaEvent()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      mapAllMarkets(event)
+      // No warn calls expected — every market in the synthetic event has an
+      // explicit sportsMarketType.
+      expect(warnSpy).not.toHaveBeenCalled()
+    }
+    finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('emits a warning when sportsMarketType is missing (defaults to moneyline)', () => {
+    // Drift-lock the observability behavior: missing field → warn + default.
+    const event: PolymarketEvent = {
+      slug: 'nba-bos-lal-2026-05-06',
+      id: '999002',
+      title: 'Boston Celtics vs. Los Angeles Lakers',
+      endDate: null,
+      createdAt: '2026-05-01T10:00:00Z',
+      negRisk: false,
+      enableNegRisk: false,
+      markets: [
+        {
+          id: 'm-no-type',
+          conditionId: '0xnt',
+          groupItemTitle: '',
+          active: true,
+          closed: false,
+          outcomes: ['A', 'B'],
+          outcomePrices: [0.5, 0.5],
+          clobTokenIds: ['t1', 't2'],
+          bestBid: null,
+          bestAsk: null,
+          lastTradePrice: null,
+          volume: 0,
+          volume24hr: null,
+          slug: 'nba-bos-lal-2026-05-06',
+          iconUrl: null,
+          gameStartTime: '2026-05-06 22:30:00+00',
+          // sportsMarketType intentionally omitted
+          line: null,
+        },
+      ],
+    }
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const entries = mapAllMarkets(event)
+      expect(entries).toHaveLength(1)
+      expect(entries[0]!.market_type).toBe('moneyline') // defaulted
+      expect(warnSpy).toHaveBeenCalled()
+    }
+    finally {
+      warnSpy.mockRestore()
+    }
+  })
+})
+
+// ---- Phase B v2 v2 NHL fixture parse regression ---------------------------
+
+describe('normalizeGamesDiscoveryPayload — NHL fixture regression (Phase B v2 v2)', () => {
+  function loadNhlFixture(): unknown[] {
+    // Some fixtures may have a UTF-8 BOM; strip defensively.
+    const raw = readFileSync(
+      resolve(__dirname, '../fixtures/polymarket-gamma-nhl-per-game-response.json'),
+      'utf8',
+    ).replace(/^\uFEFF/, '')
+    return JSON.parse(raw) as unknown[]
+  }
+
+  // Mirrors the production mapper in `client.ts` for the post-mapper
+  // PolymarketEvent shape. Same approach as the MLB end-to-end block.
+  function gammaEventToPolymarketEvent(raw: any): PolymarketEvent {
+    return {
+      slug: raw.slug,
+      id: raw.id ? String(raw.id) : undefined,
+      title: raw.title,
+      endDate: raw.endDate ?? null,
+      createdAt: raw.createdAt,
+      negRisk: raw.negRisk,
+      enableNegRisk: raw.enableNegRisk,
+      markets: raw.markets.map((m: any) => ({
+        id: m.id,
+        conditionId: m.conditionId,
+        groupItemTitle: m.groupItemTitle ?? '',
+        active: m.active,
+        closed: m.closed,
+        outcomes: typeof m.outcomes === 'string' ? JSON.parse(m.outcomes) : m.outcomes,
+        outcomePrices: typeof m.outcomePrices === 'string'
+          ? (JSON.parse(m.outcomePrices) as string[]).map(Number) as [number, number]
+          : m.outcomePrices,
+        clobTokenIds: typeof m.clobTokenIds === 'string' ? JSON.parse(m.clobTokenIds) : m.clobTokenIds,
+        bestBid: m.bestBid ?? null,
+        bestAsk: m.bestAsk ?? null,
+        lastTradePrice: m.lastTradePrice ?? null,
+        volume: typeof m.volume === 'number' ? m.volume : Number(m.volume) || 0,
+        volume24hr: m.volume24hr ?? null,
+        slug: m.slug,
+        iconUrl: m.icon ?? null,
+        gameStartTime: m.gameStartTime,
+        sportsMarketType: m.sportsMarketType,
+        line: typeof m.line === 'number' ? m.line : null,
+      })),
+    }
+  }
+
+  it('normalizes ALL NHL fixture events without rejection (9/9 expected)', () => {
+    // NHL probe finding: 9/9 events normalize, 49/49 markets pass the
+    // schema. This test drift-locks against any future change that drops
+    // an event silently.
+    const fixture = loadNhlFixture()
+    expect(fixture.length).toBeGreaterThan(0)
+
+    const results = fixture.map((raw: any) => {
+      const event = gammaEventToPolymarketEvent(raw)
+      return normalizeGamesDiscoveryPayload(event, 'nhl')
+    })
+
+    const nonNullCount = results.filter(r => r !== null).length
+    expect(
+      nonNullCount,
+      `every NHL fixture event should normalize successfully; got ${nonNullCount}/${fixture.length}`,
+    ).toBe(fixture.length)
+  })
+
+  it('nHL persisted payload preserves moneyline + totals + spreads sections', () => {
+    const fixture = loadNhlFixture()
+    const results = fixture
+      .map((raw: any) => normalizeGamesDiscoveryPayload(gammaEventToPolymarketEvent(raw), 'nhl'))
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+
+    const allMarketTypes = new Set<string>()
+    results.forEach((normalized) => {
+      normalized.payload.markets.forEach((entry) => {
+        allMarketTypes.add(entry.market_type)
+      })
+    })
+
+    // NHL probe: response shape covers moneyline + totals + spreads. (Not
+    // every event has spreads — verified via probe.) At minimum, every
+    // event has moneyline + totals.
+    expect(allMarketTypes).toContain('moneyline')
+    expect(allMarketTypes).toContain('totals')
   })
 })

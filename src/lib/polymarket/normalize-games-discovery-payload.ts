@@ -2,6 +2,18 @@ import type { PolymarketEvent } from '@/lib/polymarket/types'
 import { z } from 'zod'
 
 /**
+ * NBA player-prop market types filtered out of the per-game card MVP scope.
+ * `points` / `rebounds` / `assists` are individual player markets that don't
+ * fit the team-vs-team card pattern. Phase B v2 v2 explicitly omits these
+ * from `mapAllMarkets`. Future MVP-extension can revisit.
+ */
+const PLAYER_PROP_MARKET_TYPES: ReadonlySet<string> = new Set([
+  'points',
+  'rebounds',
+  'assists',
+])
+
+/**
  * Production Zod schema for the Phase B per-game JSON envelope persisted in
  * `discovered_polymarket_games.markets_payload`. Co-located with the
  * `DiscoveredGameMarketsPayload` interface so the runtime validator and
@@ -23,7 +35,15 @@ export const DiscoveredGameMarketsPayloadSchema = z.object({
     polymarket_market_id: z.string(),
     slug: z.string(),
     question: z.string(),
-    market_type: z.enum(['moneyline', 'nrfi', 'spreads', 'totals']),
+    market_type: z.enum([
+      'moneyline',
+      'nrfi',
+      'spreads',
+      'totals',
+      'first_half_moneyline',
+      'first_half_spreads',
+      'first_half_totals',
+    ]),
     line: z.number().nullable().default(null),
     outcomes: z.tuple([z.string(), z.string()]).nullable(),
     outcome_prices: z.tuple([z.string(), z.string()]).nullable(),
@@ -47,11 +67,14 @@ export interface DiscoveredGameMarketEntry {
   slug: string
   question: string
   /**
-   * Phase B v2 expansion. MVP captured `'moneyline'` only. v2 captures all
-   * four section types so the sports template can group markets by section
-   * via existing `buildSportsGamesCardGroups` / `buildButtons` helpers.
+   * Phase B v2 expansion. MVP captured `'moneyline'` only. v2 captured 4
+   * section types (moneyline/nrfi/spreads/totals); Phase B v2 v2 adds NBA
+   * first-half variants (first_half_moneyline / first_half_spreads /
+   * first_half_totals) so the sports template can group those markets by
+   * section via existing `buildSportsGamesCardGroups` / `buildButtons`
+   * helpers.
    */
-  market_type: 'moneyline' | 'nrfi' | 'spreads' | 'totals'
+  market_type: 'moneyline' | 'nrfi' | 'spreads' | 'totals' | 'first_half_moneyline' | 'first_half_spreads' | 'first_half_totals'
   /**
    * Phase B v2 line value for spreads (e.g. -1.5) and totals (e.g. 7.5, 8.5).
    * `null` for moneyline + nrfi (no line concept). Sourced from Polymarket
@@ -145,6 +168,23 @@ export function mapAllMarkets(event: PolymarketEvent): DiscoveredGameMarketEntry
     if (!market.outcomes || !market.outcomePrices || !market.clobTokenIds) {
       continue
     }
+    // Phase B v2 v2 MVP filter: player-prop markets are out of team-vs-team
+    // card scope. Filter BEFORE the strict enum + observability warning so
+    // these don't trigger the `mapAllMarkets sportsMarketType missing`
+    // log line.
+    if (market.sportsMarketType && PLAYER_PROP_MARKET_TYPES.has(market.sportsMarketType)) {
+      continue
+    }
+    // After the player-prop filter above, `sportsMarketType` (if present) can
+    // only be one of the section types accepted by `DiscoveredGameMarketEntry.market_type`.
+    // TypeScript can't narrow this through the runtime `Set.has()` check, so
+    // we narrow explicitly via a typed variable.
+    const sectionType: DiscoveredGameMarketEntry['market_type'] | undefined
+      = market.sportsMarketType === 'points'
+        || market.sportsMarketType === 'rebounds'
+        || market.sportsMarketType === 'assists'
+        ? undefined
+        : market.sportsMarketType
     if (market.sportsMarketType == null) {
       // Observability: surface upstream Polymarket Gamma schema drift before
       // it silently coerces every section into 'moneyline'. If this warning
@@ -162,7 +202,7 @@ export function mapAllMarkets(event: PolymarketEvent): DiscoveredGameMarketEntry
       polymarket_market_id: market.id,
       slug: market.slug ?? event.slug,
       question: market.groupItemTitle || event.title || market.id,
-      market_type: market.sportsMarketType ?? 'moneyline',
+      market_type: sectionType ?? 'moneyline',
       line: market.line ?? null,
       outcomes: market.outcomes,
       // outcomePrices is parsed as numeric tuple; persist as string tuple

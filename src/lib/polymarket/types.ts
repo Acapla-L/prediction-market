@@ -49,7 +49,20 @@ export interface PolymarketMarket {
    * Phase B sidecar payload via `normalize-games-discovery-payload.ts` so the
    * sports route can group markets by section type at render time.
    */
-  sportsMarketType?: 'moneyline' | 'nrfi' | 'spreads' | 'totals'
+  sportsMarketType?:
+    | 'moneyline'
+    | 'nrfi'
+    | 'spreads'
+    | 'totals'
+    | 'first_half_moneyline'
+    | 'first_half_spreads'
+    | 'first_half_totals'
+    // Phase B v2 v2: player-prop markets pass through the type but are
+    // filtered out at `mapAllMarkets` time. Listed here so the `.has()`
+    // membership check on `PLAYER_PROP_MARKET_TYPES` typechecks cleanly.
+    | 'points'
+    | 'rebounds'
+    | 'assists'
   /**
    * Phase B v2 line value for spreads (e.g. -1.5) and totals (e.g. 7.5, 8.5).
    * `null` when the market has no line concept (moneyline, nrfi). Verified

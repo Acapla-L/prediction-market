@@ -98,6 +98,21 @@ async function handleGamesDiscoverySync(request: Request): Promise<NextResponse<
     }
 
     for (const event of events) {
+      // Phase B v2 v2 sub-event filter: if the registry entry defines
+      // `subEventFilter`, only events that pass the filter proceed to normalize.
+      // No-op for leagues without the filter (default: persist every event).
+      // Scaffold for Phase B v2 v3 soccer; v2 v2 leagues all leave it undefined.
+      // Uses the existing `'normalize_skipped'` status to keep observability
+      // consistent (no new status type).
+      if (league.subEventFilter && !league.subEventFilter(event.slug)) {
+        results.push({
+          slug: event.slug,
+          league: league.slug,
+          status: 'normalize_skipped',
+        })
+        continue
+      }
+
       try {
         const normalized = normalizeGamesDiscoveryPayload(event, league.slug)
         if (!normalized) {
