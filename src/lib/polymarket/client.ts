@@ -77,6 +77,9 @@ const GammaEventSchema = z.object({
   id: z.coerce.string().optional(),
   title: z.string().optional(),
   endDate: z.string().nullable().optional(),
+  // Gamma event creation timestamp. Surfaced into the synthetic Event's
+  // `created_at` so the chart's ALL range covers full Polymarket history.
+  createdAt: z.string().optional(),
 })
 
 const GammaResponseSchema = z.array(GammaEventSchema).min(1)
@@ -176,6 +179,7 @@ export async function fetchPolymarketGammaEvent(slug: string): Promise<Polymarke
     id: first.id,
     title: first.title,
     endDate: first.endDate ?? null,
+    createdAt: first.createdAt,
     markets: first.markets.map(m => ({
       id: m.id,
       conditionId: m.conditionId,

@@ -23,6 +23,13 @@ export interface DiscoveredMarketPayloadEntry {
 }
 
 export interface DiscoveredMarketsPayload {
+  /**
+   * Polymarket Gamma event creation timestamp (ISO 8601). Optional for
+   * backwards compatibility with rows synced before the field was added —
+   * the synthetic Event builder falls back to `lastSyncedAt` when absent.
+   * Drives the chart's "ALL" time-range lower bound.
+   */
+  event_created_at?: string
   markets: ReadonlyArray<DiscoveredMarketPayloadEntry>
 }
 
@@ -35,6 +42,7 @@ export interface DiscoveredMarketsPayload {
  */
 export function normalizeDiscoveryPayload(event: PolymarketEvent): DiscoveredMarketsPayload {
   return {
+    event_created_at: event.createdAt,
     markets: event.markets.map((m): DiscoveredMarketPayloadEntry => ({
       polymarket_market_id: m.id,
       slug: m.slug ?? null,

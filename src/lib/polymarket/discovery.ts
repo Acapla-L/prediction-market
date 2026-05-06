@@ -17,6 +17,10 @@ import { loadRuntimeThemeState } from '@/lib/theme-settings'
 import 'server-only'
 
 const DiscoveredMarketsPayloadSchema = z.object({
+  // Optional for backwards compatibility with rows synced before this field
+  // was added. Falls back to row.lastSyncedAt in `buildSyntheticEvent` when
+  // absent. Next hourly sync overwrites with real Polymarket creation date.
+  event_created_at: z.string().optional(),
   markets: z.array(z.object({
     polymarket_market_id: z.string(),
     slug: z.string().nullable(),
@@ -174,6 +178,12 @@ export function buildSyntheticEvent(
   const status: Event['status'] = activeCount > 0 ? 'active' : 'resolved'
   const firstIcon = markets.find(m => m.icon_url)?.icon_url ?? ''
 
+  // Prefer the Polymarket Gamma event creation timestamp (captured during
+  // sync) so the chart's "ALL" range covers full Polymarket history. Falls
+  // back to `lastSyncedAt` when the field is absent — case occurs only for
+  // rows synced before this fix landed; next hourly sync overwrites them.
+  const eventCreatedAt = payload.event_created_at ?? syncedAtIso
+
   return {
     id: eventId,
     slug: row.slug,
@@ -186,7 +196,7 @@ export function buildSyntheticEvent(
     total_markets_count: markets.length,
     volume: totalVolume,
     end_date: endDateIso,
-    created_at: syncedAtIso,
+    created_at: eventCreatedAt,
     updated_at: syncedAtIso,
     markets,
     tags: [],

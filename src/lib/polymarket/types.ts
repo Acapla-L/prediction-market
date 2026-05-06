@@ -43,6 +43,15 @@ export interface PolymarketEvent {
   title?: string
   /** Gamma event endDate (ISO 8601). Used by the discovery sidecar (FIFA path ignores). */
   endDate?: string | null
+  /**
+   * Gamma event creation timestamp (ISO 8601). Used by the discovery sidecar
+   * to populate the synthetic Event's `created_at`, which drives the chart's
+   * "ALL" time-range lower bound in `useEventPriceHistory.buildTimeRangeFilters`.
+   * Without this, the synthetic Event falls back to `last_synced_at` (set to
+   * NOW() each sync run) and the chart shows only ~1 hour of history.
+   * FIFA path ignores this field.
+   */
+  createdAt?: string
 }
 
 // ---- Polymarket CLOB API (price history) -----------------------------------
