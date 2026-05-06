@@ -50,7 +50,13 @@ const JsonStringNumberTuple = z.preprocess(
 const GammaMarketSchema = z.object({
   id: z.string(),
   conditionId: z.string(),
-  groupItemTitle: z.string(),
+  // Optional because per-game Moneyline markets have it `undefined` (the
+  // market IS the matchup; no team-name to label). Phase A v2 futures
+  // markets always have it populated (team name on the bracket). The mapper
+  // below defaults missing values to '' so downstream consumers see a string.
+  // Verified empirically via `tests/fixtures/polymarket-gamma-mlb-per-game-
+  // response.json` (3 of 15 markets — all Moneylines — lack this field).
+  groupItemTitle: z.string().optional(),
   active: z.boolean(),
   closed: z.boolean(),
   // Polymarket returns placeholder markets for future qualifying teams
@@ -67,6 +73,12 @@ const GammaMarketSchema = z.object({
   // Optional fields used by the discovery sidecar; FIFA path ignores them.
   slug: z.string().optional(),
   icon: z.string().nullable().optional(),
+  // Phase B per-game tipoff/first-pitch time (ISO-with-offset). At the
+  // MARKET level, NOT the event level (counterintuitive but verified
+  // against real Gamma response — fixture above). Optional because Phase
+  // A v2 futures markets do not include it. Surfaced into the synthetic
+  // Event's `created_at` and the sidecar's `game_start_time` column.
+  gameStartTime: z.string().optional(),
 })
 
 const GammaEventSchema = z.object({
@@ -80,10 +92,10 @@ const GammaEventSchema = z.object({
   // Gamma event creation timestamp. Surfaced into the synthetic Event's
   // `created_at` so the chart's ALL range covers full Polymarket history.
   createdAt: z.string().optional(),
-  // Phase B per-game fields. Optional because Phase A v2 futures responses
-  // do not include them (or set `enableNegRisk: true`). Per-game responses
-  // include `gameStartTime` ISO + `negRisk: false` + `enableNegRisk: false`.
-  gameStartTime: z.string().optional(),
+  // Phase B per-game neg-risk flags (always `false` for per-game). Optional
+  // because Phase A v2 futures responses set `enableNegRisk: true`. Note:
+  // `gameStartTime` is at the MARKET level (see `GammaMarketSchema` above),
+  // NOT the event level — verified via real fixture.
   negRisk: z.boolean().optional(),
   enableNegRisk: z.boolean().optional(),
 })
@@ -200,13 +212,18 @@ function mapGammaEventToPolymarketEvent(
     title: gammaEvent.title,
     endDate: gammaEvent.endDate ?? null,
     createdAt: gammaEvent.createdAt,
-    gameStartTime: gammaEvent.gameStartTime,
     negRisk: gammaEvent.negRisk,
     enableNegRisk: gammaEvent.enableNegRisk,
     markets: gammaEvent.markets.map(m => ({
       id: m.id,
       conditionId: m.conditionId,
-      groupItemTitle: m.groupItemTitle,
+      // Default empty string when Gamma omits the field (Phase B per-game
+      // Moneyline markets). Phase A v2 futures markets always have a
+      // populated team name. Downstream consumers in
+      // `normalize-discovery-payload.ts` (Phase A v2) and
+      // `normalize-games-discovery-payload.ts` (Phase B) handle empty string
+      // safely — Phase B's normalizer falls back to `event.title` via `||`.
+      groupItemTitle: m.groupItemTitle ?? '',
       active: m.active,
       closed: m.closed,
       outcomes: m.outcomes,
@@ -219,6 +236,10 @@ function mapGammaEventToPolymarketEvent(
       volume24hr: m.volume24hr,
       slug: m.slug,
       iconUrl: m.icon ?? null,
+      // Phase B per-game tipoff time. Undefined for Phase A v2 futures
+      // markets and for placeholder markets that Polymarket hasn't yet
+      // populated. Required for per-game normalize.
+      gameStartTime: m.gameStartTime,
     })),
   }
 }

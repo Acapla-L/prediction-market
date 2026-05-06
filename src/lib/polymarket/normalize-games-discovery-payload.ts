@@ -103,20 +103,29 @@ export function parseTeamLabels(title: string | undefined): {
  *
  * Returns `null` if:
  *   - The event has no markets (degenerate case)
- *   - The event lacks `gameStartTime` (Phase B requires this field)
  *   - The event lacks `createdAt` (Phase B requires this field for chart range)
+ *   - The moneyline market lacks `gameStartTime` (Phase B requires it; lives
+ *     at the MARKET level on Polymarket Gamma, NOT the event level — verified
+ *     via real fixture)
  *   - The moneyline market lacks tradeable price/token data (degenerate)
  */
 export function normalizeGamesDiscoveryPayload(
   event: PolymarketEvent,
   leagueSlug: string,
 ): NormalizedGameEvent | null {
-  if (!event.gameStartTime || !event.createdAt) {
+  if (!event.createdAt) {
     return null
   }
 
   const moneyline = pickMoneylineMarket(event)
   if (!moneyline) {
+    return null
+  }
+
+  // gameStartTime lives at the MARKET level on Polymarket Gamma per-game
+  // responses (not the event level). Pulled from the moneyline market to
+  // represent the game's tipoff/first-pitch.
+  if (!moneyline.gameStartTime) {
     return null
   }
 
@@ -127,7 +136,7 @@ export function normalizeGamesDiscoveryPayload(
   }
 
   const teams = parseTeamLabels(event.title)
-  const gameStartTimeDate = new Date(event.gameStartTime)
+  const gameStartTimeDate = new Date(moneyline.gameStartTime)
   if (Number.isNaN(gameStartTimeDate.getTime())) {
     return null
   }
@@ -156,7 +165,7 @@ export function normalizeGamesDiscoveryPayload(
 
   const payload: DiscoveredGameMarketsPayload = {
     event_created_at: event.createdAt,
-    game_start_time: event.gameStartTime,
+    game_start_time: moneyline.gameStartTime,
     markets: [payloadEntry],
   }
 

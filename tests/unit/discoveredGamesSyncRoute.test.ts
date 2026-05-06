@@ -57,14 +57,15 @@ function makeMlbGame(slug: string): PolymarketEvent {
     title: `Game ${slug}`,
     endDate: '2026-05-12T23:05:00Z',
     createdAt: '2026-04-29T13:00:18.813855Z',
-    gameStartTime: '2026-05-05T23:05:00Z',
     negRisk: false,
     enableNegRisk: false,
     markets: [
       {
         id: `${slug}-moneyline`,
         conditionId: `0x${slug}-mn`,
-        groupItemTitle: 'Moneyline',
+        // Real Polymarket Moneyline markets lack groupItemTitle (mapper
+        // defaults missing → ''). Mirror that shape for fidelity.
+        groupItemTitle: '',
         slug,
         iconUrl: null,
         active: true,
@@ -77,6 +78,8 @@ function makeMlbGame(slug: string): PolymarketEvent {
         lastTradePrice: 0.5,
         volume: 1000,
         volume24hr: 100,
+        // gameStartTime lives on the MARKET, not the event.
+        gameStartTime: '2026-05-05T23:05:00Z',
       },
     ],
   }

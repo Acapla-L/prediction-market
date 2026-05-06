@@ -1,7 +1,10 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   fetchFifaGammaEvent,
   fetchPolymarketGammaEvent,
+  fetchPolymarketGammaEventsBySeries,
 } from '@/lib/polymarket/client'
 import { FIFA_EVENT_SLUG } from '@/lib/polymarket/constants'
 
@@ -177,6 +180,131 @@ describe('polymarket client — fetchFifaGammaEvent alias', () => {
   it('returns the same null behaviour as fetchPolymarketGammaEvent on failure', async () => {
     fetchSpy.mockResolvedValueOnce(mockStatusResponse(404))
     const result = await fetchFifaGammaEvent()
+    expect(result).toBeNull()
+  })
+})
+
+describe('polymarket client — fetchPolymarketGammaEventsBySeries (Phase B per-game)', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  // Real response captured from gamma-api.polymarket.com on 2026-05-06.
+  // Drives the regression tests for both bugs found in Session 2:
+  //   Bug 1: groupItemTitle is undefined on Moneyline markets (3 of 15)
+  //   Bug 2: gameStartTime is at market level, NOT event level (15 of 15
+  //   markets carry it; 0 of 3 events carry it)
+  function loadRealFixture(): unknown {
+    return JSON.parse(
+      readFileSync(
+        resolve(__dirname, '../fixtures/polymarket-gamma-mlb-per-game-response.json'),
+        'utf8',
+      ),
+    )
+  }
+
+  it('parses the real captured Polymarket Gamma per-game response (regression for both bugs)', async () => {
+    const fixture = loadRealFixture()
+    fetchSpy.mockResolvedValueOnce(mockJsonResponse(fixture))
+
+    const result = await fetchPolymarketGammaEventsBySeries('3')
+
+    expect(result).not.toBeNull()
+    expect(result).toHaveLength(3)
+
+    result!.forEach((event) => {
+      expect(event.slug).toMatch(/^mlb-/)
+      expect(event.markets.length).toBeGreaterThan(0)
+
+      // Moneyline market (slug exact-matches event slug):
+      //   - Schema accepts undefined groupItemTitle (Bug 1 fix)
+      //   - Mapper defaults missing groupItemTitle to ''
+      //   - gameStartTime is populated at the market level (Bug 2 fix)
+      const moneyline = event.markets.find(m => m.slug === event.slug)
+      expect(moneyline).toBeDefined()
+      expect(moneyline!.groupItemTitle).toBe('')
+      expect(moneyline!.gameStartTime).toBeDefined()
+      expect(typeof moneyline!.gameStartTime).toBe('string')
+    })
+  })
+
+  it('moneyline markets have empty groupItemTitle, non-moneyline markets do not', async () => {
+    const fixture = loadRealFixture()
+    fetchSpy.mockResolvedValueOnce(mockJsonResponse(fixture))
+
+    const result = await fetchPolymarketGammaEventsBySeries('3')
+
+    let emptyCount = 0
+    let populatedCount = 0
+    result!.forEach((event) => {
+      event.markets.forEach((m) => {
+        if (m.slug === event.slug) {
+          emptyCount++
+          expect(m.groupItemTitle).toBe('')
+        }
+        else {
+          populatedCount++
+          expect(m.groupItemTitle).not.toBe('')
+        }
+      })
+    })
+    expect(emptyCount).toBe(3) // one moneyline per event
+    expect(populatedCount).toBe(12) // remaining markets (4 per event × 3 events)
+  })
+
+  it('every market carries gameStartTime (not at event level)', async () => {
+    const fixture = loadRealFixture()
+    fetchSpy.mockResolvedValueOnce(mockJsonResponse(fixture))
+
+    const result = await fetchPolymarketGammaEventsBySeries('3')
+
+    result!.forEach((event) => {
+      // PolymarketEvent type no longer carries gameStartTime — verifying
+      // it's NOT propagated as an event-level field.
+      // @ts-expect-error — confirming the field is removed at the type level
+      expect(event.gameStartTime).toBeUndefined()
+
+      event.markets.forEach((m) => {
+        expect(m.gameStartTime).toBeDefined()
+        expect(typeof m.gameStartTime).toBe('string')
+      })
+    })
+  })
+
+  it('builds the per-series URL with active=true&closed=false&limit', async () => {
+    fetchSpy.mockResolvedValueOnce(mockJsonResponse([]))
+    await fetchPolymarketGammaEventsBySeries('3')
+
+    const urlArg = fetchSpy.mock.calls[0]?.[0] as string
+    expect(urlArg).toContain('series_id=3')
+    expect(urlArg).toContain('active=true')
+    expect(urlArg).toContain('closed=false')
+    expect(urlArg).toContain('limit=50')
+  })
+
+  it('returns empty array (not null) when series has no active games', async () => {
+    fetchSpy.mockResolvedValueOnce(mockJsonResponse([]))
+    const result = await fetchPolymarketGammaEventsBySeries('3')
+    expect(result).toEqual([])
+  })
+
+  it('returns null when transport fails after retries', async () => {
+    fetchSpy.mockResolvedValue(mockStatusResponse(500))
+    const result = await fetchPolymarketGammaEventsBySeries('3')
+    expect(result).toBeNull()
+  })
+
+  it('returns null when Zod schema rejects the response', async () => {
+    fetchSpy.mockResolvedValueOnce(mockJsonResponse([{ totally: 'wrong-shape' }]))
+    const result = await fetchPolymarketGammaEventsBySeries('3')
     expect(result).toBeNull()
   })
 })
