@@ -11,6 +11,7 @@ export * from './notifications/tables'
 export * from './orders/tables'
 export * from './settings/tables'
 export * from './subgraph/tables'
+export * from './teams-cache/tables'
 
 // relations
 export * from './affiliates/relations'

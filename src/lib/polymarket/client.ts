@@ -79,6 +79,14 @@ const GammaMarketSchema = z.object({
   // A v2 futures markets do not include it. Surfaced into the synthetic
   // Event's `created_at` and the sidecar's `game_start_time` column.
   gameStartTime: z.string().optional(),
+  // Phase B v2 multi-section market fields. `sportsMarketType` partitions a
+  // game's 5 markets into moneyline/nrfi/spreads/totals; `line` carries the
+  // numeric line value for spreads/totals (null otherwise). Optional because
+  // Phase A v2 futures markets do not include either. Surfaced into the
+  // sidecar payload entries via `normalize-games-discovery-payload.ts` so
+  // the sports route can group markets by section.
+  sportsMarketType: z.enum(['moneyline', 'nrfi', 'spreads', 'totals']).optional(),
+  line: z.number().nullable().optional(),
 })
 
 const GammaEventSchema = z.object({
@@ -240,6 +248,11 @@ function mapGammaEventToPolymarketEvent(
       // markets and for placeholder markets that Polymarket hasn't yet
       // populated. Required for per-game normalize.
       gameStartTime: m.gameStartTime,
+      // Phase B v2 multi-section market fields. Pass through unchanged so
+      // `normalize-games-discovery-payload.ts` can preserve them on per-
+      // market sidecar entries. Undefined for Phase A v2 futures.
+      sportsMarketType: m.sportsMarketType,
+      line: m.line ?? null,
     })),
   }
 }

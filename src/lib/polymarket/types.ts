@@ -40,6 +40,23 @@ export interface PolymarketMarket {
    * leave it undefined.
    */
   gameStartTime?: string
+  /**
+   * Phase B v2 multi-section markets. Polymarket Gamma per-game responses
+   * carry up to 5 markets per event across 4 section types: moneyline, nrfi,
+   * spreads, totals. Verified via the MLB per-game fixture (5 markets per
+   * event, e.g. moneyline + nrfi + spreads + 2 totals at different lines).
+   * Phase A v2 futures markets do NOT carry this field. Surfaced into the
+   * Phase B sidecar payload via `normalize-games-discovery-payload.ts` so the
+   * sports route can group markets by section type at render time.
+   */
+  sportsMarketType?: 'moneyline' | 'nrfi' | 'spreads' | 'totals'
+  /**
+   * Phase B v2 line value for spreads (e.g. -1.5) and totals (e.g. 7.5, 8.5).
+   * `null` when the market has no line concept (moneyline, nrfi). Verified
+   * via real Gamma per-game fixture: spreads + totals carry a numeric `line`,
+   * moneyline + nrfi carry `null`/missing.
+   */
+  line?: number | null
 }
 
 export interface PolymarketEvent {

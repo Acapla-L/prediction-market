@@ -18,7 +18,22 @@ const DiscoveredGameMarketsPayloadSchema = z.object({
     polymarket_market_id: z.string(),
     slug: z.string(),
     question: z.string(),
-    market_type: z.literal('moneyline'),
+    // Phase B v2 expansion: relaxed from `z.literal('moneyline')` to the
+    // full enum. The sports template uses this field at render time to
+    // group markets into Moneyline / Spread / Total / NRFI sections.
+    market_type: z.enum(['moneyline', 'nrfi', 'spreads', 'totals']),
+    // Phase B v2 NEW field. The `.default(null)` modifier is intentional
+    // and required for back-compat — see plan §C "Schema back-compat
+    // rationale". Existing 50 production MLB rows on
+    // `discovered_polymarket_games.markets_payload` predate this field
+    // entirely; without `.default(null)` Zod would reject `undefined`
+    // (distinct from `null` in Zod's type system) and every existing row
+    // would fail to parse on first read after deploy, 404'ing every
+    // Phase B per-game page until the refresh cron rewrote each row.
+    // The `.default(null)` modifier absorbs missing fields → `null` so
+    // existing rows keep parsing while new sync writes carry real values
+    // for spreads/totals.
+    line: z.number().nullable().default(null),
     outcomes: z.tuple([z.string(), z.string()]).nullable(),
     outcome_prices: z.tuple([z.string(), z.string()]).nullable(),
     clob_token_ids: z.tuple([z.string(), z.string()]).nullable(),
@@ -181,9 +196,16 @@ export function buildSyntheticGameEvent(
     show_market_icons: true,
     status,
     active_markets_count: activeCount,
-    // MVP: moneyline-only → exactly 1 market. This satisfies
-    // EventChart.shouldHideChart (`isSingleMarket=true`) so the chart renders
-    // even though `enable_neg_risk` is undefined for per-game events.
+    // Phase B v2: up to 5 markets per game (moneyline + nrfi + spreads + 1-2
+    // totals). The previous MVP had `total_markets_count: 1` and relied on
+    // EventChart.shouldHideChart's `isSingleMarket=true` short-circuit to
+    // render the chart despite `enable_neg_risk` being undefined. With v2
+    // multi-market shape, that short-circuit no longer applies — but for
+    // Phase B v2 the rendering surface is the sports template
+    // (SportsEventCenter), not the futures EventChart, so the gate isn't
+    // exercised on this path. If the legacy /event/[slug] dispatch is ever
+    // reactivated for per-game events, EventChart will need a multi-market
+    // path here.
     total_markets_count: markets.length,
     volume: totalVolume,
     end_date: endDateIso,
