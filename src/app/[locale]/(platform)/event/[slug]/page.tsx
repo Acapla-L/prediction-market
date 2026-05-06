@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import type { SupportedLocale } from '@/i18n/locales'
 import type { EventPageContentData } from '@/lib/event-page-data'
+import type { DiscoveredGamesLeague } from '@/lib/polymarket/games-leagues'
 import { setRequestLocale } from 'next-intl/server'
 import { cacheTag } from 'next/cache'
 import { notFound } from 'next/navigation'
@@ -28,8 +29,37 @@ import {
   loadDiscoveredGamePageData,
   loadDiscoveredGameShellData,
 } from '@/lib/polymarket/games-discovery'
+import {
+
+  getLeagueForGameSlug,
+  isDiscoveryGameSlug,
+} from '@/lib/polymarket/games-leagues'
 import { STATIC_PARAMS_PLACEHOLDER } from '@/lib/static-params'
 import { loadRuntimeThemeState } from '@/lib/theme-settings'
+
+/**
+ * Map a Phase B discovery league to its canonical `/sports/[league]/...` URL
+ * parent. Mirrors the convention used by `SportsMenuRepository.resolveCanonicalSlugByAlias`.
+ *
+ * Temporary fallback for Phase B v2 Session 2 (per plan §K resolution #6 +
+ * sub-agent B3 spec): if the league registry does not yet expose a
+ * `sportRouteSlug` field (sub-agent B4 work), derive the URL parent from the
+ * league slug here. Once B4 lands `sportRouteSlug` on `DiscoveredGamesLeague`,
+ * this fallback should prefer the registry value.
+ */
+function resolveSportRouteSlug(league: DiscoveredGamesLeague): string | null {
+  // TODO(B4): drop this once `sportRouteSlug` is added to DiscoveredGamesLeague.
+  const fromRegistry = (league as DiscoveredGamesLeague & { sportRouteSlug?: string }).sportRouteSlug
+  if (typeof fromRegistry === 'string' && fromRegistry.length > 0) {
+    return fromRegistry
+  }
+  switch (league.slug) {
+    case 'mlb':
+      return 'baseball'
+    default:
+      return null
+  }
+}
 
 export async function generateStaticParams() {
   return [{ slug: STATIC_PARAMS_PLACEHOLDER }]
@@ -41,6 +71,29 @@ export async function generateMetadata({ params }: PageProps<'/[locale]/event/[s
   const resolvedLocale = locale as SupportedLocale
   if (slug === STATIC_PARAMS_PLACEHOLDER) {
     notFound()
+  }
+
+  // Phase B v2: per-game slugs (e.g. `mlb-tor-tb-2026-05-06`) redirect to the
+  // canonical `/sports/[sport]/[event]` URL. Gated on the precise per-game
+  // regex via `isDiscoveryGameSlug` — Phase A v2 futures slugs (e.g.
+  // `mlb-world-series-champion-2026`, `2026-nba-champion`) do NOT match the
+  // per-game regex and fall through to their existing branch below.
+  // See plan §E "URL routing strategy". Redirect happens here so OG/canonical
+  // metadata is generated against the canonical URL on the redirected page.
+  if (isDiscoveryGameSlug(slug)) {
+    const league = getLeagueForGameSlug(slug)
+    if (league) {
+      const sportRouteSlug = resolveSportRouteSlug(league)
+      if (sportRouteSlug) {
+        redirect({
+          href: `/sports/${sportRouteSlug}/${slug}`,
+          locale,
+        })
+      }
+    }
+    // If the league or sportRouteSlug cannot be resolved, fall through —
+    // either the Phase B sidecar branch below will handle it, or notFound()
+    // will fire downstream.
   }
 
   // Discovery slugs are NOT in the Kuest events table. The Kuest path
@@ -196,6 +249,30 @@ export default async function EventPage({ params }: PageProps<'/[locale]/event/[
   const resolvedLocale = locale as SupportedLocale
   if (slug === STATIC_PARAMS_PLACEHOLDER) {
     notFound()
+  }
+
+  // Phase B v2: redirect per-game slugs to `/sports/[sport]/[event]`. This
+  // MUST happen here in the outer non-cached caller — `redirect()` thrown
+  // inside a `'use cache'` function shares the same response-status race
+  // class as `notFound()` (see CLAUDE.md and `fetchEventPageCachedData`'s
+  // doc comment for the full Cache-Components rationale). Gated on the
+  // precise per-game regex via `isDiscoveryGameSlug`; Phase A v2 futures
+  // slugs (e.g. `2026-nba-champion`) do NOT match and fall through.
+  // See plan §E "URL routing strategy".
+  if (isDiscoveryGameSlug(slug)) {
+    const league = getLeagueForGameSlug(slug)
+    if (league) {
+      const sportRouteSlug = resolveSportRouteSlug(league)
+      if (sportRouteSlug) {
+        redirect({
+          href: `/sports/${sportRouteSlug}/${slug}`,
+          locale,
+        })
+      }
+    }
+    // If league/sportRouteSlug cannot be resolved, fall through to the cached
+    // fetcher — its Phase B branch (`isGamesDiscoveryEnabledForSlug`) acts as
+    // a defensive fallback so the page still renders rather than 404'ing.
   }
 
   const cached = await fetchEventPageCachedData(resolvedLocale, slug)

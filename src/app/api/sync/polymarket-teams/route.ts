@@ -184,8 +184,15 @@ async function handleTeamsSync(request: Request): Promise<NextResponse<TeamsSync
       }
 
       try {
+        // PreWork.1: persist `league.slug` (the iteration value from the league
+        // registry, used to construct the Gamma request) rather than
+        // `team.league` from the upstream response. Polymarket can return
+        // case/format variants (e.g. "MLB" vs "mlb") on individual rows; the
+        // projection layer's `getByAbbreviation(league, abbreviation)` lookup
+        // would miss while a row exists under the upstream-formatted league
+        // value. Pinning to the registry slug keeps writes and reads symmetric.
         const upsert = await TeamsCacheRepository.upsertSuccess({
-          league: team.league,
+          league: league.slug,
           team_id: team.id,
           name: team.name,
           alias: team.alias ?? null,
@@ -197,7 +204,7 @@ async function handleTeamsSync(request: Request): Promise<NextResponse<TeamsSync
 
         if (upsert.error || !upsert.data) {
           await TeamsCacheRepository.markFailure({
-            league: team.league,
+            league: league.slug,
             abbreviation: team.abbreviation.toLowerCase(),
             error: upsert.error || 'upsert returned no row',
           })
@@ -210,7 +217,7 @@ async function handleTeamsSync(request: Request): Promise<NextResponse<TeamsSync
       catch (err) {
         const message = err instanceof Error ? err.message : 'unknown'
         await TeamsCacheRepository.markFailure({
-          league: team.league,
+          league: league.slug,
           abbreviation: team.abbreviation.toLowerCase(),
           error: message,
         })

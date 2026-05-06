@@ -10,6 +10,10 @@
  *   - `seriesId`         — Polymarket Gamma `series_id` from `GET /sports`
  *   - `slugPattern`      — regex matching valid per-game slugs for the league
  *   - `mainTag`          — the `main_tag` value on the synthetic Event
+ *   - `sportRouteSlug`   — the SPORT slug used by Kuest's `/sports/[sport]/[event]`
+ *                          route (e.g., MLB → 'baseball'). Resolved by
+ *                          `SportsMenuRepository.resolveCanonicalSlugByAlias`.
+ *                          See plan §E (URL routing strategy) and §K resolution #6.
  *
  * The slug pattern source MUST stay byte-identical with the inline mirror in
  * `useEventPriceHistory.ts`. The Phase B drift detector test asserts equality.
@@ -19,10 +23,10 @@
  *   - `mlb-cin-chc-2026-05-05`         — Cincinnati at Cubs, May 5, 2026
  *
  * Future leagues (NOT yet active):
- *   - NBA series_id 10345, slug pattern /^nba-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/
- *   - NHL series_id 10346, slug pattern /^nhl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/
- *   - NFL series_id 10187, slug pattern /^nfl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/
- *   - EPL series_id 10188, slug pattern /^epl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/
+ *   - NBA series_id 10345, slug pattern /^nba-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/, sportRouteSlug 'basketball'
+ *   - NHL series_id 10346, slug pattern /^nhl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/, sportRouteSlug 'hockey'
+ *   - NFL series_id 10187, slug pattern /^nfl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/, sportRouteSlug 'football'
+ *   - EPL series_id 10188, slug pattern /^epl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/, sportRouteSlug 'soccer'
  */
 
 export interface DiscoveredGamesLeague {
@@ -30,6 +34,7 @@ export interface DiscoveredGamesLeague {
   seriesId: string
   slugPattern: RegExp
   mainTag: string
+  sportRouteSlug: string
 }
 
 export const DISCOVERED_GAMES_LEAGUES: readonly DiscoveredGamesLeague[] = [
@@ -38,6 +43,7 @@ export const DISCOVERED_GAMES_LEAGUES: readonly DiscoveredGamesLeague[] = [
     seriesId: '3',
     slugPattern: /^mlb-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
     mainTag: 'mlb',
+    sportRouteSlug: 'baseball',
   },
 ] as const
 

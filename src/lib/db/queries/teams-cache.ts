@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { teams_cache } from '@/lib/db/schema'
 import { runQuery } from '@/lib/db/utils/run-query'
 import { db } from '@/lib/drizzle'
+import 'server-only'
 
 export interface TeamCacheRow {
   league: string

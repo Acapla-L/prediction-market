@@ -2,8 +2,8 @@ import type { PolymarketEvent } from '@/lib/polymarket/types'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { z } from 'zod'
 import {
+  DiscoveredGameMarketsPayloadSchema,
   normalizeGamesDiscoveryPayload,
   parseTeamLabels,
   pickMoneylineMarket,
@@ -534,37 +534,17 @@ describe('normalizeGamesDiscoveryPayload — end-to-end against real Polymarket 
 })
 
 describe('discoveredGameMarketsPayloadSchema — back-compat (Adjustment 3 drift-lock)', () => {
-  // Replica of the production Zod schema from
-  // `platform/src/lib/polymarket/games-discovery.ts:14-45`. Inlined here
-  // because that schema is not exported (lives behind 'server-only'). If the
-  // production schema changes, this replica MUST be updated to match —
-  // failure to do so means this drift-lock loses its bite. The test name
-  // calls this out so future refactors hit the test failure first.
+  // PreWork.2 (Phase B v2 Session 2): the production schema is now exported
+  // from `normalize-games-discovery-payload.ts` and imported directly here.
+  // Previously this block defined a replica that drifted silently; importing
+  // the canonical schema removes that risk.
   //
   // The critical invariant locked here: `line: z.number().nullable().default(null)`.
-  // The `.default(null)` is required for back-compat with existing 50
-  // production MLB rows in `discovered_polymarket_games.markets_payload` that
+  // The `.default(null)` is required for back-compat with existing
+  // production rows in `discovered_polymarket_games.markets_payload` that
   // predate the `line` field. Without `.default(null)`, Zod would reject
   // `undefined` (distinct from `null` in Zod's type system) and every legacy
   // row would fail to parse → 404 cascade.
-  const ReplicaSchema = z.object({
-    event_created_at: z.string(),
-    game_start_time: z.string(),
-    markets: z.array(z.object({
-      polymarket_market_id: z.string(),
-      slug: z.string(),
-      question: z.string(),
-      market_type: z.enum(['moneyline', 'nrfi', 'spreads', 'totals']),
-      line: z.number().nullable().default(null),
-      outcomes: z.tuple([z.string(), z.string()]).nullable(),
-      outcome_prices: z.tuple([z.string(), z.string()]).nullable(),
-      clob_token_ids: z.tuple([z.string(), z.string()]).nullable(),
-      volume: z.number().nullable(),
-      is_active: z.boolean(),
-      is_closed: z.boolean(),
-      icon_url: z.string().nullable(),
-    })),
-  })
 
   it('parses a legacy payload that omits the `line` field on each market', () => {
     // Simulates a row written by the pre-Adjustment-3 sync code (no `line`
@@ -592,7 +572,7 @@ describe('discoveredGameMarketsPayloadSchema — back-compat (Adjustment 3 drift
       ],
     }
 
-    const parsed = ReplicaSchema.safeParse(legacyPayload)
+    const parsed = DiscoveredGameMarketsPayloadSchema.safeParse(legacyPayload)
     expect(parsed.success).toBe(true)
     if (!parsed.success) {
       return // narrowing
@@ -626,7 +606,7 @@ describe('discoveredGameMarketsPayloadSchema — back-compat (Adjustment 3 drift
         },
       ],
     }
-    const parsed = ReplicaSchema.safeParse(payload)
+    const parsed = DiscoveredGameMarketsPayloadSchema.safeParse(payload)
     expect(parsed.success).toBe(true)
     if (!parsed.success) {
       return
@@ -669,7 +649,7 @@ describe('discoveredGameMarketsPayloadSchema — back-compat (Adjustment 3 drift
         },
       ],
     }
-    const parsed = ReplicaSchema.safeParse(payload)
+    const parsed = DiscoveredGameMarketsPayloadSchema.safeParse(payload)
     expect(parsed.success).toBe(true)
     if (!parsed.success) {
       return
@@ -700,6 +680,6 @@ describe('discoveredGameMarketsPayloadSchema — back-compat (Adjustment 3 drift
         },
       ],
     }
-    expect(ReplicaSchema.safeParse(badPayload).success).toBe(false)
+    expect(DiscoveredGameMarketsPayloadSchema.safeParse(badPayload).success).toBe(false)
   })
 })
