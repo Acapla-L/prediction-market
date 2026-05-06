@@ -23,6 +23,11 @@ import {
   loadDiscoveredEventPageData,
   loadDiscoveredEventShellData,
 } from '@/lib/polymarket/discovery'
+import {
+  isGamesDiscoveryEnabledForSlug,
+  loadDiscoveredGamePageData,
+  loadDiscoveredGameShellData,
+} from '@/lib/polymarket/games-discovery'
 import { STATIC_PARAMS_PLACEHOLDER } from '@/lib/static-params'
 import { loadRuntimeThemeState } from '@/lib/theme-settings'
 
@@ -50,46 +55,65 @@ export async function generateMetadata({ params }: PageProps<'/[locale]/event/[s
     if (!row) {
       notFound()
     }
-    const title = row.title.trim()
-    const siteName = site.name
-    const description = `Live odds, market activity, and trading data for ${title} on ${siteName}.`
-    const pageUrl = buildEventPageUrl({ eventSlug: slug, locale: resolvedLocale, route: null })
-    const imageUrl = buildEventOgImageUrl({
-      eventSlug: slug,
-      locale: resolvedLocale,
-      version: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
-    })
-    const socialImage = {
-      url: imageUrl,
-      width: 1200,
-      height: 630,
-      alt: `${title} on ${siteName}`,
-      type: 'image/png',
-    } as const
-    return {
-      title,
-      description,
-      openGraph: {
-        type: 'website',
-        url: pageUrl,
-        title,
-        description,
-        siteName,
-        images: [socialImage],
-      },
-      twitter: {
-        card: 'summary_large_image',
-        title,
-        description,
-        images: [socialImage],
-      },
+    return buildDiscoveryMetadata(row.title, slug, resolvedLocale, site.name)
+  }
+
+  // Phase B per-game discovery — symmetric with the futures branch above.
+  // Default-off in MVP via POLYMARKET_GAMES_DISCOVERY_ENABLED=false; isolated
+  // from Phase A v2 path so a flag flip cannot regress futures behavior.
+  if (isGamesDiscoveryEnabledForSlug(slug)) {
+    const { row, site } = await loadDiscoveredGameShellData(slug)
+    if (!row || row.isArchived) {
+      notFound()
     }
+    return buildDiscoveryMetadata(row.title, slug, resolvedLocale, site.name)
   }
 
   return await buildEventPageMetadata({
     eventSlug: slug,
     locale: resolvedLocale,
   })
+}
+
+function buildDiscoveryMetadata(
+  rawTitle: string,
+  slug: string,
+  locale: SupportedLocale,
+  siteName: string,
+): Metadata {
+  const title = rawTitle.trim()
+  const description = `Live odds, market activity, and trading data for ${title} on ${siteName}.`
+  const pageUrl = buildEventPageUrl({ eventSlug: slug, locale, route: null })
+  const imageUrl = buildEventOgImageUrl({
+    eventSlug: slug,
+    locale,
+    version: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+  })
+  const socialImage = {
+    url: imageUrl,
+    width: 1200,
+    height: 630,
+    alt: `${title} on ${siteName}`,
+    type: 'image/png',
+  } as const
+  return {
+    title,
+    description,
+    openGraph: {
+      type: 'website',
+      url: pageUrl,
+      title,
+      description,
+      siteName,
+      images: [socialImage],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      images: [socialImage],
+    },
+  }
 }
 
 interface EventPageCachedData {
@@ -137,6 +161,19 @@ async function fetchEventPageCachedData(
     cacheTag(cacheTags.discoveredEvent(slug))
     const [data, theme] = await Promise.all([
       loadDiscoveredEventPageData(slug),
+      loadRuntimeThemeState(),
+    ])
+    eventPageData = data
+    runtimeTheme = theme
+  }
+  else if (isGamesDiscoveryEnabledForSlug(slug)) {
+    // Phase B per-game discovery sidecar. Default-off via env var; symmetric
+    // with the Phase A v2 branch above. Order matters: Kuest events check
+    // runs first so any future Kuest-synced per-game event takes precedence
+    // (defensive).
+    cacheTag(cacheTags.discoveredGame(slug))
+    const [data, theme] = await Promise.all([
+      loadDiscoveredGamePageData(slug),
       loadRuntimeThemeState(),
     ])
     eventPageData = data
