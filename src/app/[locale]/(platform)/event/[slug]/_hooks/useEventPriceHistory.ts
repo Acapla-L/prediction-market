@@ -28,6 +28,23 @@ const POLYMARKET_OVERLAY_SLUGS_INLINE: ReadonlySet<string> = new Set<string>([
   ...DISCOVERED_POLYMARKET_SLUGS_INLINE,
 ])
 
+// Phase B per-game discovery — slug PATTERNS (not literals).
+// MUST stay byte-identical with `DISCOVERED_GAMES_LEAGUES[*].slugPattern` in
+// `@/lib/polymarket/games-leagues`. Drift-locked by
+// `tests/unit/discoveryGameSlugPatternInvariant.test.ts`.
+//
+// Inlined here for the same reason the slug literals are: importing from the
+// server-side module would drag `'server-only'` into the client bundle and
+// break the Turbopack build. Patterns instead of literals because per-game
+// slugs are unbounded (~22 active games/day at MLB peak) and can't be enumerated.
+const DISCOVERED_GAME_SLUG_PATTERNS_INLINE: readonly RegExp[] = [
+  /^mlb-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
+] as const
+
+function isInlineDiscoveryGameSlug(slug: string): boolean {
+  return DISCOVERED_GAME_SLUG_PATTERNS_INLINE.some(pattern => pattern.test(slug))
+}
+
 export type TimeRange = '1H' | '6H' | '1D' | '1W' | '1M' | 'ALL'
 
 interface PriceHistoryPoint {
@@ -71,9 +88,9 @@ export interface PriceHistoryEndpoint {
  *
  * Rules:
  *   - Non-allowlisted event → Kuest CLOB (status quo).
- *   - Allowlisted event (FIFA or any discovered slug) + at least one target
- *     with `polymarketTokenId` populated → our server-side proxy at
- *     `/api/polymarket/prices-history`.
+ *   - Allowlisted event (FIFA, any discovered futures slug, or any per-game
+ *     pattern-matched slug) + at least one target with `polymarketTokenId`
+ *     populated → our server-side proxy at `/api/polymarket/prices-history`.
  *   - Allowlisted event + zero polymarket targets (cold-cache fallback per
  *     Revision 4 of the original FIFA plan) → Kuest CLOB. Preserves the
  *     "never worse than today" invariant when the overlay was empty.
@@ -84,6 +101,7 @@ export function resolvePriceHistoryEndpoint(
 ): PriceHistoryEndpoint {
   const hasPolymarketTarget = targets.some(target => target.polymarketTokenId !== undefined)
   const isOverlaySlug = POLYMARKET_OVERLAY_SLUGS_INLINE.has(eventSlug)
+    || isInlineDiscoveryGameSlug(eventSlug)
   const usePolymarketProxy = isOverlaySlug && hasPolymarketTarget
 
   if (usePolymarketProxy) {

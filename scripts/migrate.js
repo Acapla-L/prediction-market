@@ -308,6 +308,31 @@ async function createSyncPolymarketDiscoveryCron(sql, siteUrl, cronSecret) {
   })
 }
 
+async function createSyncPolymarketGamesDiscoveryCron(sql, siteUrl, cronSecret) {
+  // Hourly per-league discovery — finds new games + archives stale ones.
+  // Phase B plan §B. Route is gated by POLYMARKET_GAMES_DISCOVERY_ENABLED;
+  // when the flag is off the route returns immediately without polling.
+  await createSyncCron(sql, {
+    jobName: 'sync-polymarket-games-discovery',
+    schedule: '13 * * * *',
+    endpointPath: '/api/sync/polymarket-games-discovery',
+    siteUrl,
+    cronSecret,
+  })
+}
+
+async function createSyncPolymarketGamesRefreshCron(sql, siteUrl, cronSecret) {
+  // Per-game refresh every 5 min for active in-window rows. Cron syntax
+  // `*/5` runs at minutes 0, 5, 10, ..., 55. Phase B plan §B.
+  await createSyncCron(sql, {
+    jobName: 'sync-polymarket-games-refresh',
+    schedule: '*/5 * * * *',
+    endpointPath: '/api/sync/polymarket-games-refresh',
+    siteUrl,
+    cronSecret,
+  })
+}
+
 async function resolveCronExtensionCapabilities(sql) {
   const result = await sql`
     SELECT
@@ -348,6 +373,8 @@ async function configureSupabaseScheduler(sql, siteUrl, cronSecret) {
   await createSyncResolutionCron(sql, siteUrl, cronSecret)
   await createSyncVolumeCron(sql, siteUrl, cronSecret)
   await createSyncPolymarketDiscoveryCron(sql, siteUrl, cronSecret)
+  await createSyncPolymarketGamesDiscoveryCron(sql, siteUrl, cronSecret)
+  await createSyncPolymarketGamesRefreshCron(sql, siteUrl, cronSecret)
 }
 
 function resolveMigrationConnectionString() {

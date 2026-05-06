@@ -2,6 +2,7 @@ import type { MarketTokenTarget } from '@/app/[locale]/(platform)/event/[slug]/_
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { normalizeClobMarketPrice } from '@/lib/clob-price'
+import { isSyntheticConditionId } from '@/lib/polymarket/synthetic-prefixes'
 
 interface PriceApiResponse {
   [tokenId: string]: { BUY?: string, SELL?: string } | undefined
@@ -22,17 +23,15 @@ export type MarketQuotesByMarket = Record<string, MarketQuote>
 const PRICE_REFRESH_INTERVAL_MS = 60_000
 const CLOB_BASE_URL = process.env.CLOB_URL
 
-// Synthetic condition_ids minted by the Polymarket discovery sidecar
-// (see `lib/polymarket/discovery.ts:SYNTHETIC_CONDITION_PREFIX`). These are
-// NOT valid Kuest CLOB tokens — POSTing them to /prices or /midpoints returns
-// 404. Filter them out at the hook layer to avoid console noise + nonfunctional
-// real-time subscriptions for discovery events. Inlined to keep this client
-// hook free of `server-only` imports (mirrors the FIFA + discovered-slugs
-// allowlist mirror pattern in useEventPriceHistory.ts).
-const SYNTHETIC_CONDITION_PREFIX = 'polymarket-discovered:'
-
+// Synthetic condition_ids minted by the Polymarket discovery layer
+// (Phase A v2 futures: `polymarket-discovered:`; Phase B per-game:
+// `polymarket-discovered-game:`). These are NOT valid Kuest CLOB tokens —
+// POSTing them to /prices or /midpoints returns 404. Filter them out at the
+// hook layer to avoid console noise + nonfunctional real-time subscriptions
+// for discovery events. Imported from `synthetic-prefixes.ts` (no `server-only`
+// chain) so server and client share a single source of truth.
 function isSyntheticTarget(target: MarketTokenTarget): boolean {
-  return target.conditionId.startsWith(SYNTHETIC_CONDITION_PREFIX)
+  return isSyntheticConditionId(target.conditionId)
 }
 
 function normalizePrice(value: string | number | undefined | null) {

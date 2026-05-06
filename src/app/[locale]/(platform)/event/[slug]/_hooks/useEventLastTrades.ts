@@ -3,18 +3,19 @@ import type { LastTradePriceEntry } from '@/app/[locale]/(platform)/event/[slug]
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { normalizeClobMarketPrice } from '@/lib/clob-price'
+import { isSyntheticConditionId } from '@/lib/polymarket/synthetic-prefixes'
 
 const CLOB_BASE_URL = process.env.CLOB_URL
 const LAST_TRADE_REFRESH_INTERVAL_MS = 60_000
 
-// Synthetic condition_ids minted by the Polymarket discovery sidecar
-// (see `lib/polymarket/discovery.ts:SYNTHETIC_CONDITION_PREFIX`). Filter
-// them out so we don't POST invalid token_ids to Kuest's /last-trades-prices.
-// Inlined to keep this client hook free of `server-only` imports.
-const SYNTHETIC_CONDITION_PREFIX = 'polymarket-discovered:'
-
+// Synthetic condition_ids minted by the Polymarket discovery layer
+// (Phase A v2 futures: `polymarket-discovered:`; Phase B per-game:
+// `polymarket-discovered-game:`). Filter them out so we don't POST invalid
+// token_ids to Kuest's /last-trades-prices. Imported from
+// `synthetic-prefixes.ts` (no `server-only` chain) so server and client share
+// a single source of truth.
 function isSyntheticTarget(target: MarketTokenTarget): boolean {
-  return target.conditionId.startsWith(SYNTHETIC_CONDITION_PREFIX)
+  return isSyntheticConditionId(target.conditionId)
 }
 
 function normalizePrice(value: string | undefined) {

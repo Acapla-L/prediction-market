@@ -52,6 +52,25 @@ export interface PolymarketEvent {
    * FIFA path ignores this field.
    */
   createdAt?: string
+  /**
+   * Game tipoff/first-pitch time (ISO 8601 with offset). Present on Polymarket
+   * Gamma per-game responses (`series_id` filtered). Absent on the futures
+   * responses Phase A v2 uses. Phase B per-game discovery uses this as the
+   * authoritative game-start timestamp.
+   */
+  gameStartTime?: string
+  /**
+   * Polymarket Gamma's `negRisk` flag at the event level. Phase A v2 futures
+   * are always `true` (allowlist contract); Phase B per-game events are
+   * always `false`. The flag drives `EventChart.shouldHideChart` indirectly —
+   * see discovery.ts where Phase A v2 hardcodes `true`. Phase B per-game
+   * mirrors this value as `false` so the synthetic Event accurately reflects
+   * source semantics; chart still renders because Phase B is single-market
+   * (`isSingleMarket=true` short-circuits the gate).
+   */
+  negRisk?: boolean
+  /** Mirror of `negRisk` from a different field name in Polymarket's payload. */
+  enableNegRisk?: boolean
 }
 
 // ---- Polymarket CLOB API (price history) -----------------------------------

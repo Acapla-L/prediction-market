@@ -80,9 +80,18 @@ const GammaEventSchema = z.object({
   // Gamma event creation timestamp. Surfaced into the synthetic Event's
   // `created_at` so the chart's ALL range covers full Polymarket history.
   createdAt: z.string().optional(),
+  // Phase B per-game fields. Optional because Phase A v2 futures responses
+  // do not include them (or set `enableNegRisk: true`). Per-game responses
+  // include `gameStartTime` ISO + `negRisk: false` + `enableNegRisk: false`.
+  gameStartTime: z.string().optional(),
+  negRisk: z.boolean().optional(),
+  enableNegRisk: z.boolean().optional(),
 })
 
 const GammaResponseSchema = z.array(GammaEventSchema).min(1)
+// Permissive list-form: per-league series queries may legitimately return
+// `[]` during off-season or when Polymarket has no current matches.
+const GammaListResponseSchema = z.array(GammaEventSchema)
 
 const PriceHistoryPointSchema = z.object({
   t: z.number(),
@@ -174,13 +183,27 @@ export async function fetchPolymarketGammaEvent(slug: string): Promise<Polymarke
   }
 
   const first = parsed.data[0]
+  return mapGammaEventToPolymarketEvent(first)
+}
+
+/**
+ * Maps a parsed Gamma event (Zod-validated) to the public `PolymarketEvent`
+ * shape. Extracted from {@link fetchPolymarketGammaEvent} so the per-series
+ * list endpoint can reuse the same per-event mapping.
+ */
+function mapGammaEventToPolymarketEvent(
+  gammaEvent: z.infer<typeof GammaEventSchema>,
+): PolymarketEvent {
   return {
-    slug: first.slug,
-    id: first.id,
-    title: first.title,
-    endDate: first.endDate ?? null,
-    createdAt: first.createdAt,
-    markets: first.markets.map(m => ({
+    slug: gammaEvent.slug,
+    id: gammaEvent.id,
+    title: gammaEvent.title,
+    endDate: gammaEvent.endDate ?? null,
+    createdAt: gammaEvent.createdAt,
+    gameStartTime: gammaEvent.gameStartTime,
+    negRisk: gammaEvent.negRisk,
+    enableNegRisk: gammaEvent.enableNegRisk,
+    markets: gammaEvent.markets.map(m => ({
       id: m.id,
       conditionId: m.conditionId,
       groupItemTitle: m.groupItemTitle,
@@ -198,6 +221,53 @@ export async function fetchPolymarketGammaEvent(slug: string): Promise<Polymarke
       iconUrl: m.icon ?? null,
     })),
   }
+}
+
+/**
+ * Fetches all currently-relevant Polymarket Gamma events for a sport series
+ * (Phase B per-game discovery). Filters to active + non-closed at the API
+ * level; caller filters further by date window if needed.
+ *
+ * Returns `[]` (not `null`) on empty result; returns `null` on transport
+ * failure or schema rejection so the sync route can distinguish between
+ * "nothing to sync today" and "Gamma is unhappy and we should mark failure".
+ *
+ * `seriesId` is the numeric string from `GET /sports` (e.g. "3" for MLB).
+ */
+export async function fetchPolymarketGammaEventsBySeries(
+  seriesId: string,
+  options: { limit?: number } = {},
+): Promise<readonly PolymarketEvent[] | null> {
+  const limit = options.limit ?? 50
+  const qs = new URLSearchParams({
+    series_id: seriesId,
+    active: 'true',
+    closed: 'false',
+    limit: String(limit),
+  })
+  const url = `${getGammaBase()}/events?${qs.toString()}`
+
+  const res = await fetchWithRetry(url)
+  if (!res || !res.ok) {
+    return null
+  }
+
+  let data: unknown
+  try {
+    data = await res.json()
+  }
+  catch (err) {
+    console.error('[polymarket] gamma series json parse failed:', err)
+    return null
+  }
+
+  const parsed = GammaListResponseSchema.safeParse(data)
+  if (!parsed.success) {
+    console.error('[polymarket] gamma series zod failed:', parsed.error.issues)
+    return null
+  }
+
+  return parsed.data.map(mapGammaEventToPolymarketEvent)
 }
 
 /**
