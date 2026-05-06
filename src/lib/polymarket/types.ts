@@ -32,6 +32,14 @@ export interface PolymarketMarket {
   slug?: string
   /** Gamma market icon URL. Used by the discovery sidecar (FIFA path ignores). */
   iconUrl?: string | null
+  /**
+   * Phase B per-game tipoff/first-pitch time (ISO 8601 with offset). Lives
+   * on the MARKET, NOT the event — verified via real Gamma response fixture
+   * `tests/fixtures/polymarket-gamma-mlb-per-game-response.json` (15 of 15
+   * markets have it; 0 of 3 events have it). Phase A v2 futures markets
+   * leave it undefined.
+   */
+  gameStartTime?: string
 }
 
 export interface PolymarketEvent {
@@ -53,13 +61,6 @@ export interface PolymarketEvent {
    */
   createdAt?: string
   /**
-   * Game tipoff/first-pitch time (ISO 8601 with offset). Present on Polymarket
-   * Gamma per-game responses (`series_id` filtered). Absent on the futures
-   * responses Phase A v2 uses. Phase B per-game discovery uses this as the
-   * authoritative game-start timestamp.
-   */
-  gameStartTime?: string
-  /**
    * Polymarket Gamma's `negRisk` flag at the event level. Phase A v2 futures
    * are always `true` (allowlist contract); Phase B per-game events are
    * always `false`. The flag drives `EventChart.shouldHideChart` indirectly —
@@ -71,6 +72,9 @@ export interface PolymarketEvent {
   negRisk?: boolean
   /** Mirror of `negRisk` from a different field name in Polymarket's payload. */
   enableNegRisk?: boolean
+  // NOTE: `gameStartTime` lives on PolymarketMarket, NOT here. Polymarket
+  // Gamma's per-game response puts the tipoff on each market entry. See
+  // `PolymarketMarket.gameStartTime` above.
 }
 
 // ---- Polymarket CLOB API (price history) -----------------------------------
