@@ -438,12 +438,9 @@ export async function loadDiscoveredGameSportsCard(slug: string): Promise<Sports
     return null
   }
 
-  // The DiscoveredGamesLeague registry will gain a `sportRouteSlug` field
-  // from sub-agent B4 in parallel. Until then, fall back to the league slug
-  // as the route segment (matches the MLB-only MVP convention where
-  // `/sports/mlb/...` is the canonical URL — B4's change will introduce
-  // `/sports/baseball/...` per Polymarket convention).
-  const sportRouteSlug = (league as DiscoveredGamesLeagueWithSportRoute).sportRouteSlug ?? league.slug
+  // The canonical sport-route slug (e.g. MLB → 'baseball') is sourced from
+  // the `DiscoveredGamesLeague` registry. See `games-leagues.ts` and plan §E.
+  const sportRouteSlug = league.sportRouteSlug
 
   const { data: row, error } = await DiscoveredGamesRepository.getBySlug(slug)
   if (error || !row) {
@@ -478,15 +475,4 @@ export async function loadDiscoveredGameSportsCard(slug: string): Promise<Sports
   }
 
   return buildSportsGamesCardFromGameRow(row, homeRow ?? null, awayRow ?? null, sportRouteSlug)
-}
-
-/**
- * Forward-compat shape for the `DiscoveredGamesLeague` type — sub-agent B4
- * is adding `sportRouteSlug: string` to `games-leagues.ts` in parallel with
- * this file. Once B4 lands, the cast is a no-op; until then, the runtime
- * fallback in `loadDiscoveredGameSportsCard` reads `league.slug`.
- */
-interface DiscoveredGamesLeagueWithSportRoute {
-  slug: string
-  sportRouteSlug?: string
 }
