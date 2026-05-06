@@ -237,6 +237,30 @@ describe('/api/sync/polymarket-teams', () => {
     expect(upsertedAbbreviations).toHaveLength(30)
   })
 
+  it('persists the registry league slug, not the upstream-provided value (PreWork.1)', async () => {
+    // PreWork.1 drift-lock: even if Polymarket returns "MLB" / "Mlb" / etc.
+    // on individual rows, the route MUST persist `league.slug` (the registry
+    // value used to construct the request) so subsequent
+    // `getByAbbreviation(league, abbreviation)` reads with the canonical
+    // lowercase slug succeed. Pinning to the registry slug keeps writes and
+    // reads symmetric.
+    const teams = loadMlbTeamsFixture().map(team => ({
+      ...team,
+      league: 'MLB', // simulate Polymarket returning an uppercase variant
+    }))
+    mockFetchJson(teams)
+
+    await GET(makeRequest())
+
+    const upsertedLeagues = mockedRepo.upsertSuccess.mock.calls.map(
+      ([input]) => input.league,
+    )
+    expect(upsertedLeagues.length).toBeGreaterThan(0)
+    upsertedLeagues.forEach((league) => {
+      expect(league).toBe('mlb')
+    })
+  })
+
   it('lowercases team abbreviations on persistence', async () => {
     // Fixture abbreviations are already lowercase; verify the route still
     // applies `.toLowerCase()` defensively. Inject one synthetic team with an

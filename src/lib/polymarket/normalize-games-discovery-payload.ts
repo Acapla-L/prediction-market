@@ -1,4 +1,39 @@
 import type { PolymarketEvent } from '@/lib/polymarket/types'
+import { z } from 'zod'
+
+/**
+ * Production Zod schema for the Phase B per-game JSON envelope persisted in
+ * `discovered_polymarket_games.markets_payload`. Co-located with the
+ * `DiscoveredGameMarketsPayload` interface so the runtime validator and
+ * the static type stay in sync — and so test code can import the canonical
+ * schema directly instead of maintaining a drift-prone replica.
+ *
+ * IMPORTANT: keep `line: z.number().nullable().default(null)` in place. The
+ * `.default(null)` modifier is required for back-compat with existing
+ * production rows on `discovered_polymarket_games.markets_payload` that
+ * predate the `line` field. Without `.default(null)`, Zod rejects
+ * `undefined` (distinct from `null` in Zod's type system) and every legacy
+ * row would fail to parse → 404 cascade on Phase B per-game pages until the
+ * refresh cron rewrote each row.
+ */
+export const DiscoveredGameMarketsPayloadSchema = z.object({
+  event_created_at: z.string(),
+  game_start_time: z.string(),
+  markets: z.array(z.object({
+    polymarket_market_id: z.string(),
+    slug: z.string(),
+    question: z.string(),
+    market_type: z.enum(['moneyline', 'nrfi', 'spreads', 'totals']),
+    line: z.number().nullable().default(null),
+    outcomes: z.tuple([z.string(), z.string()]).nullable(),
+    outcome_prices: z.tuple([z.string(), z.string()]).nullable(),
+    clob_token_ids: z.tuple([z.string(), z.string()]).nullable(),
+    volume: z.number().nullable(),
+    is_active: z.boolean(),
+    is_closed: z.boolean(),
+    icon_url: z.string().nullable(),
+  })),
+})
 
 /**
  * Per-market entry in the Phase B per-game JSON envelope. Distinct from
@@ -109,6 +144,19 @@ export function mapAllMarkets(event: PolymarketEvent): DiscoveredGameMarketEntry
   for (const market of event.markets) {
     if (!market.outcomes || !market.outcomePrices || !market.clobTokenIds) {
       continue
+    }
+    if (market.sportsMarketType == null) {
+      // Observability: surface upstream Polymarket Gamma schema drift before
+      // it silently coerces every section into 'moneyline'. If this warning
+      // starts firing, the `sportsMarketType` field has been renamed/removed
+      // upstream and the downstream `mapAllMarkets`/template grouping logic
+      // will need to adapt.
+      console.warn('mapAllMarkets sportsMarketType missing', {
+        marketSlug: market.slug ?? event.slug,
+        marketId: market.id,
+        eventSlug: event.slug,
+        defaulted_to: 'moneyline',
+      })
     }
     entries.push({
       polymarket_market_id: market.id,

@@ -4,45 +4,12 @@ import type { DiscoveredGameMarketsPayload } from '@/lib/polymarket/normalize-ga
 import type { ThemeSiteIdentity } from '@/lib/theme-site-identity'
 import type { Event, Market, Outcome } from '@/types'
 import { cacheTag } from 'next/cache'
-import { z } from 'zod'
 import { cacheTags } from '@/lib/cache-tags'
 import { DiscoveredGamesRepository } from '@/lib/db/queries/discovered-games'
 import { getLeagueForGameSlug, isDiscoveryGameSlug } from '@/lib/polymarket/games-leagues'
+import { DiscoveredGameMarketsPayloadSchema } from '@/lib/polymarket/normalize-games-discovery-payload'
 import { loadRuntimeThemeState } from '@/lib/theme-settings'
 import 'server-only'
-
-const DiscoveredGameMarketsPayloadSchema = z.object({
-  event_created_at: z.string(),
-  game_start_time: z.string(),
-  markets: z.array(z.object({
-    polymarket_market_id: z.string(),
-    slug: z.string(),
-    question: z.string(),
-    // Phase B v2 expansion: relaxed from `z.literal('moneyline')` to the
-    // full enum. The sports template uses this field at render time to
-    // group markets into Moneyline / Spread / Total / NRFI sections.
-    market_type: z.enum(['moneyline', 'nrfi', 'spreads', 'totals']),
-    // Phase B v2 NEW field. The `.default(null)` modifier is intentional
-    // and required for back-compat — see plan §C "Schema back-compat
-    // rationale". Existing 50 production MLB rows on
-    // `discovered_polymarket_games.markets_payload` predate this field
-    // entirely; without `.default(null)` Zod would reject `undefined`
-    // (distinct from `null` in Zod's type system) and every existing row
-    // would fail to parse on first read after deploy, 404'ing every
-    // Phase B per-game page until the refresh cron rewrote each row.
-    // The `.default(null)` modifier absorbs missing fields → `null` so
-    // existing rows keep parsing while new sync writes carry real values
-    // for spreads/totals.
-    line: z.number().nullable().default(null),
-    outcomes: z.tuple([z.string(), z.string()]).nullable(),
-    outcome_prices: z.tuple([z.string(), z.string()]).nullable(),
-    clob_token_ids: z.tuple([z.string(), z.string()]).nullable(),
-    volume: z.number().nullable(),
-    is_active: z.boolean(),
-    is_closed: z.boolean(),
-    icon_url: z.string().nullable(),
-  })),
-})
 
 /**
  * Phase B per-game synthetic write-side prefix. The colon is appended by
