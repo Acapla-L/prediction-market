@@ -1,3 +1,4 @@
+// DEPRECATED: superseded by fetchFeaturedFuturesData; remove during Step 6 cutover.
 import type { Event } from '@/types'
 import type { DataPoint } from '@/types/PredictionChartTypes'
 import { EventRepository } from '@/lib/db/queries/event'

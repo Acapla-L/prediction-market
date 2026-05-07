@@ -10,5 +10,8 @@ export const cacheTags = {
   settings: 'settings',
   discoveredEvent: (slug: string) => `polymarket-discovered:event:${slug}`,
   discoveredGame: (slug: string) => `polymarket-discovered-game:event:${slug}`,
+  discoveredGamesSidebar: 'polymarket-discovered:games:sidebar',
+  discoveredGamesList: (league: string) => `polymarket-discovered-games:list:${league}`,
+  sportsFuturesSidebar: 'polymarket-discovered:futures:sidebar',
   teamsCache: (league: string) => `teams-cache:${league}`,
 }

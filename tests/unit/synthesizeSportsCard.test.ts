@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildSportsGamesCardFromGameRow,
+  buildSyntheticEvent,
   parseGameSlugTeams,
 } from '@/lib/polymarket/synthesize-sports-card'
 
@@ -436,6 +437,79 @@ describe('buildSportsGamesCardFromGameRow — optional-fields posture (Adjustmen
     else {
       expect(card!.defaultConditionId).toBeNull()
     }
+  })
+})
+
+describe('buildSyntheticEvent — games tag for home-v2 sports-moneyline gate', () => {
+  // The home-v2 home grid renders Phase B per-game synthetic Events through
+  // EventCardSportsMoneyline (team-vs-team template) when
+  // `buildHomeSportsMoneylineModel(event)` returns non-null. That model gate
+  // requires `hasGamesTag(event)` (sports-home-card.ts) to find a tag whose
+  // slug or name normalizes to `'games'` or `'game'`. Phase B synthetic Events
+  // therefore must emit a stub `'games'` tag — without it, every Phase B per-
+  // game card on the homepage falls back to the generic EventCard template
+  // (no team logos, no color-coded buttons).
+
+  function buildSyntheticEventFromFixture(idx: number) {
+    const fixture = loadEventsFixture()
+    const raw = fixture[idx]!
+    const row = buildRowFromFixture(raw)
+    const payload = buildPayloadFromFixture(raw)
+    const parsed = parseGameSlugTeams(row.slug)!
+    return buildSyntheticEvent(
+      row,
+      payload,
+      {
+        name: parsed.homeAbbr.toUpperCase(),
+        abbreviation: parsed.homeAbbr,
+        record: null,
+        color: null,
+        logoUrl: null,
+        hostStatus: 'home',
+      },
+      {
+        name: parsed.awayAbbr.toUpperCase(),
+        abbreviation: parsed.awayAbbr,
+        record: null,
+        color: null,
+        logoUrl: null,
+        hostStatus: 'away',
+      },
+      'baseball',
+    )
+  }
+
+  it('emits at least one tag with slug "games" so hasGamesTag() gate passes', () => {
+    const event = buildSyntheticEventFromFixture(0)
+
+    expect(event.tags).toBeDefined()
+    expect(event.tags.length).toBeGreaterThanOrEqual(1)
+
+    const hasGamesSlug = event.tags.some(tag => tag.slug === 'games')
+    expect(hasGamesSlug).toBe(true)
+  })
+
+  it('games tag matches Event["tags"] inline shape (4 fields, camelCase)', () => {
+    const event = buildSyntheticEventFromFixture(0)
+    const gamesTag = event.tags.find(tag => tag.slug === 'games')
+
+    expect(gamesTag).toBeDefined()
+    // Inline Event['tags'] shape per src/types/index.ts:44-49 — only 4 fields.
+    // (Distinct from the standalone Tag interface at types/index.ts:253 which has 9.)
+    expect(typeof gamesTag!.id).toBe('number')
+    expect(typeof gamesTag!.name).toBe('string')
+    expect(typeof gamesTag!.slug).toBe('string')
+    expect(typeof gamesTag!.isMainCategory).toBe('boolean')
+  })
+
+  it('main_tag remains the league code (not overwritten by "games")', () => {
+    // Drift-lock: per the fix's intent, `main_tag` stays as `row.league`
+    // ('mlb') so the per-event sports template's league-based filtering is
+    // unaffected. The `'games'` token enters via `tags[].slug`, not via
+    // `main_tag`.
+    const event = buildSyntheticEventFromFixture(0)
+    expect(event.main_tag).toBe('mlb')
+    expect(event.main_tag).not.toBe('games')
   })
 })
 

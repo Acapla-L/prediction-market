@@ -167,8 +167,17 @@ export default function EventCardSportsMoneyline({
   )
   function resolveButtonHref(button: HomeSportsMoneylineButton) {
     const marketSlug = marketSlugByConditionId.get(button.conditionId)
+    // Phase B per-game synthetic events emit `market.slug === event.slug`
+    // (both sourced from row.slug in synthesize-sports-card.ts:217). Passing
+    // the duplicate would produce /sports/{sport}/{slug}/{slug} which the
+    // sports-event route can't resolve (double-slug 404). Drop marketSlug
+    // when it collides with the event slug; the resulting base path with
+    // outcomeIndex query param is what the detail page expects.
+    const effectiveMarketSlug = marketSlug && marketSlug !== event.slug
+      ? marketSlug
+      : undefined
     return resolveEventOutcomePath(event, {
-      marketSlug,
+      marketSlug: effectiveMarketSlug,
       conditionId: button.conditionId,
       outcomeIndex: button.outcomeIndex,
     })

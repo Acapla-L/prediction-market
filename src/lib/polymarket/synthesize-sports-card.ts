@@ -251,8 +251,20 @@ function buildMarket(
  * `canRenderSportsGamesCard`: `sports_section: 'games'`, `sports_sport_slug`
  * (so `resolveEventPagePath` produces `/sports/{sport}/{slug}`), and
  * `sports_event_slug = row.slug`.
+ *
+ * **Public API surface (Step 3, sports-forward home-v2).** Originally a
+ * file-private helper of `buildSportsGamesCardFromGameRow`. Promoted to an
+ * exported entry point so the home-v2 `fetchLeagueEvents` data layer can
+ * project per-game sidecar rows directly into `Event`s for the homepage
+ * grid (which expects `Event[]`, not `SportsGamesCard[]`).
+ *
+ * Consumers:
+ *   - `buildSportsGamesCardFromGameRow` (this file) — internal, sports template
+ *   - `home-v2/_data/fetchLeagueEvents.ts` — homepage league shelves
+ *
+ * Drift-locked by `tests/unit/synthesizeSportsCard.test.ts`.
  */
-function buildSyntheticEvent(
+export function buildSyntheticEvent(
   row: DiscoveredGameRow,
   payload: z.infer<typeof DiscoveredGameMarketsPayloadSchema>,
   homeTeamForEvent: SportsGamesTeam,
@@ -321,7 +333,22 @@ function buildSyntheticEvent(
     created_at: eventCreatedAt,
     updated_at: syncedAtIso,
     markets,
-    tags: [],
+    // Games tag triggers EventCardSportsMoneyline render path via hasGamesTag()
+    // gate in sports-home-card.ts. Required for home-v2 sport sections to use
+    // team-vs-team card template (logos + percentages + color-coded buttons +
+    // footer template). `main_tag` is intentionally left as the league code so
+    // the per-event sports template's filtering/grouping logic is unaffected.
+    // Drift-locked by tests/unit/synthesizeSportsCard.test.ts.
+    tags: [
+      // Inline shape per Event['tags'] (4 fields, camelCase). Distinct from the
+      // standalone Tag interface (9 fields, snake_case) used by the admin/DB layer.
+      {
+        id: 0,
+        name: 'Games',
+        slug: 'games',
+        isMainCategory: false,
+      },
+    ],
     main_tag: row.league,
     is_bookmarked: false,
     is_trending: false,

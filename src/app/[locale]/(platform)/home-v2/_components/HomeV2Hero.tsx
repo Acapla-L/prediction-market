@@ -1,6 +1,6 @@
 'use client'
 
-import type { HeroChartEntry } from '@/app/[locale]/(platform)/home-v2/_data/fetchHeroChartData'
+import type { HeroChartConfig } from '@/app/[locale]/(platform)/home-v2/_data/fetchFeaturedFuturesData'
 import type { Event } from '@/types'
 import useEmblaCarousel from 'embla-carousel-react'
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
@@ -10,10 +10,10 @@ import { Card } from '@/components/ui/card'
 
 interface HomeV2HeroProps {
   events: Event[]
-  chartData: Record<string, HeroChartEntry>
+  chartDataByEvent: Record<string, HeroChartConfig>
 }
 
-export default function HomeV2Hero({ events, chartData }: HomeV2HeroProps) {
+export default function HomeV2Hero({ events, chartDataByEvent }: HomeV2HeroProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel({
     loop: true,
     align: 'start',
@@ -71,44 +71,39 @@ export default function HomeV2Hero({ events, chartData }: HomeV2HeroProps) {
       aria-roledescription="carousel"
       aria-label="Featured markets"
     >
-      <div className="mb-2 flex items-center justify-between gap-3 lg:mb-3">
-        <span className="text-2xs font-semibold tracking-wider text-muted-foreground uppercase">
-          Featured
+      <div className="pointer-events-none absolute top-3 right-3 z-10 flex items-center gap-2 lg:top-5 lg:right-5">
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {activeIndex + 1}
+          {' of '}
+          {events.length}
         </span>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {activeIndex + 1}
-            {' of '}
-            {events.length}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={scrollPrev}
-              aria-label="Previous slide"
-              className="
-                flex size-7 items-center justify-center rounded-full border border-border bg-card text-foreground
-                transition-colors
-                hover:bg-accent
-                focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none
-              "
-            >
-              <ChevronLeftIcon className="size-4" />
-            </button>
-            <button
-              type="button"
-              onClick={scrollNext}
-              aria-label="Next slide"
-              className="
-                flex size-7 items-center justify-center rounded-full border border-border bg-card text-foreground
-                transition-colors
-                hover:bg-accent
-                focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none
-              "
-            >
-              <ChevronRightIcon className="size-4" />
-            </button>
-          </div>
+        <div className="pointer-events-auto flex items-center gap-1">
+          <button
+            type="button"
+            onClick={scrollPrev}
+            aria-label="Previous slide"
+            className="
+              flex size-7 items-center justify-center rounded-full border border-border bg-card text-foreground
+              transition-colors
+              hover:bg-accent
+              focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none
+            "
+          >
+            <ChevronLeftIcon className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={scrollNext}
+            aria-label="Next slide"
+            className="
+              flex size-7 items-center justify-center rounded-full border border-border bg-card text-foreground
+              transition-colors
+              hover:bg-accent
+              focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none
+            "
+          >
+            <ChevronRightIcon className="size-4" />
+          </button>
         </div>
       </div>
 
@@ -119,7 +114,7 @@ export default function HomeV2Hero({ events, chartData }: HomeV2HeroProps) {
               key={event.id}
               event={event}
               isActive={index === activeIndex}
-              chartEntry={chartData[event.id] ?? null}
+              chartConfig={chartDataByEvent[event.id] ?? null}
             />
           ))}
         </div>

@@ -1,10 +1,9 @@
-'use cache'
-
+import type { SupportedLocale } from '@/i18n/locales'
 import { setRequestLocale } from 'next-intl/server'
-import HomeContent from '@/app/[locale]/(platform)/(home)/_components/HomeContent'
+import HomeV2PageContent from '@/app/[locale]/(platform)/home-v2/_components/HomeV2PageContent'
 
 export default async function HomePage({ params }: PageProps<'/[locale]'>) {
   const { locale } = await params
   setRequestLocale(locale)
-  return <HomeContent locale={locale} />
+  return <HomeV2PageContent locale={locale as SupportedLocale} />
 }

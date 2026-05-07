@@ -1,23 +1,16 @@
 'use client'
 
-import type { HeroChartEntry } from '@/app/[locale]/(platform)/home-v2/_data/fetchHeroChartData'
+import type { HeroChartConfig } from '@/app/[locale]/(platform)/home-v2/_data/fetchFeaturedFuturesData'
 import type { Event } from '@/types'
 import type { PredictionChartCursorSnapshot, SeriesConfig } from '@/types/PredictionChartTypes'
 import dynamic from 'next/dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import HomeV2HeroChartSkeleton from '@/app/[locale]/(platform)/home-v2/_components/HomeV2HeroChartSkeleton'
 import AppLink from '@/components/AppLink'
-import { Badge } from '@/components/ui/badge'
+import EventIconImage from '@/components/EventIconImage'
 import { useIsMobile } from '@/hooks/useIsMobile'
-import { OUTCOME_INDEX } from '@/lib/constants'
 import { resolveEventPagePath } from '@/lib/events-routing'
 import { formatVolume } from '@/lib/formatters'
-import { buildChanceByMarket } from '@/lib/market-chance'
-
-// Inlined — must match CHART_SERIES_KEY in fetchHeroChartData.ts.
-// Cannot import from that file because it pulls EventRepository (drizzle,
-// 'use cache', 'server-only') into the client bundle, breaking Turbopack.
-const CHART_SERIES_KEY = 'price'
 
 // PredictionChart is the pure Visx renderer used by every chart on the platform.
 // We render it directly with pre-fetched server-side data — no client-side hooks,
@@ -30,25 +23,8 @@ const PredictionChart = dynamic(
 interface HomeV2HeroSlideProps {
   event: Event
   isActive: boolean
-  chartEntry: HeroChartEntry | null
-}
-
-function pickOutcomeProbability(event: Event, outcomeIndex: 0 | 1): number {
-  const chanceByMarket = buildChanceByMarket(event.markets, {})
-  const primary = event.markets[0]
-  if (!primary) {
-    return 0
-  }
-  const yesChance = chanceByMarket[primary.condition_id] ?? 0
-  if (outcomeIndex === OUTCOME_INDEX.YES) {
-    return Math.round(yesChance)
-  }
-  return Math.round(100 - yesChance)
-}
-
-function resolveCategoryLabel(event: Event): string {
-  const mainCategory = event.tags?.find(tag => tag.isMainCategory)
-  return (mainCategory?.name || event.main_tag || event.tags?.[0]?.name || 'Featured').toUpperCase()
+  /** Multi-line chart config (top-4 outcomes). Null → renders skeleton. */
+  chartConfig: HeroChartConfig | null
 }
 
 function useContainerWidth(): [React.RefObject<HTMLDivElement | null>, number] {
@@ -74,39 +50,29 @@ function useContainerWidth(): [React.RefObject<HTMLDivElement | null>, number] {
   return [ref, width]
 }
 
-function formatChartPrice(value: number): string {
-  if (value >= 1000) {
-    return `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-  }
-  return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+function formatPercent(value: number): string {
+  return `${Math.round(value)}%`
 }
 
-export default function HomeV2HeroSlide({ event, isActive, chartEntry }: HomeV2HeroSlideProps) {
+export default function HomeV2HeroSlide({ event, isActive, chartConfig }: HomeV2HeroSlideProps) {
   const [containerRef, containerWidth] = useContainerWidth()
   const isMobile = useIsMobile()
   const chartHeight = isMobile ? 140 : 180
   const [snapshot, setSnapshot] = useState<PredictionChartCursorSnapshot | null>(null)
-  const yesProbability = pickOutcomeProbability(event, OUTCOME_INDEX.YES)
-  const noProbability = 100 - yesProbability
-  const categoryLabel = resolveCategoryLabel(event)
   const href = resolveEventPagePath(event)
   const totalMarkets = Math.max(event.total_markets_count, event.markets.length)
-  const chartData = chartEntry?.data ?? []
-  const lineColor = chartEntry?.lineColor ?? 'var(--primary)'
+
+  const dataPoints = chartConfig?.dataPoints ?? []
+  const seriesEntries = chartConfig?.series ?? []
 
   const series = useMemo<SeriesConfig[]>(
-    () => [{ key: CHART_SERIES_KEY, name: event.title, color: lineColor }],
-    [event.title, lineColor],
+    () => seriesEntries.map(s => ({ key: s.key, name: s.label, color: s.color })),
+    [seriesEntries],
   )
 
-  const hoverPrice = useMemo(() => {
-    if (!snapshot) {
-      return null
-    }
-    const raw = snapshot.values[CHART_SERIES_KEY]
-    return typeof raw === 'number' ? formatChartPrice(raw) : null
-  }, [snapshot])
-
+  // Hover tooltip — show the leading series' value at the cursor (or first
+  // available). For multi-line, header label row is always visible; the
+  // tooltip itself is decorative.
   const hoverDate = useMemo(() => {
     if (!snapshot) {
       return null
@@ -114,105 +80,121 @@ export default function HomeV2HeroSlide({ event, isActive, chartEntry }: HomeV2H
     return snapshot.date.toLocaleDateString(undefined, {
       month: 'short',
       day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
     })
   }, [snapshot])
 
   return (
     <article
       aria-roledescription="slide"
-      className="flex min-w-0 flex-[0_0_100%] flex-col gap-2 px-1 lg:gap-3"
+      className="flex min-w-0 flex-[0_0_100%] flex-col gap-2 px-1"
     >
-      <div className="flex items-center justify-between gap-3 px-1">
-        <Badge variant="outline" className="text-2xs font-semibold tracking-wider">
-          {categoryLabel}
-        </Badge>
+      {/* Top row: league logo + title left, "View market →" right. No category pill. */}
+      <div className="flex items-start justify-between gap-3 px-1">
         <AppLink
           intentPrefetch
           href={href}
-          className="text-xs font-medium text-primary transition-colors hover:text-primary/80"
+          className="group flex min-w-0 flex-1 items-center gap-2.5 transition-colors hover:text-foreground sm:gap-3"
+        >
+          {event.icon_url
+            ? (
+                <div
+                  aria-hidden
+                  className="flex size-9 shrink-0 items-center justify-center self-start overflow-hidden rounded-sm sm:size-10"
+                >
+                  <EventIconImage
+                    src={event.icon_url}
+                    alt=""
+                    sizes="40px"
+                    containerClassName="size-full rounded-sm"
+                  />
+                </div>
+              )
+            : null}
+          <h2 className="line-clamp-2 text-lg/tight font-bold text-foreground sm:text-xl/tight lg:text-2xl/tight">
+            {event.title}
+          </h2>
+        </AppLink>
+        <AppLink
+          intentPrefetch
+          href={href}
+          className="
+            shrink-0 pt-9 text-xs font-medium whitespace-nowrap text-primary transition-colors
+            hover:text-primary/80
+          "
         >
           View market →
         </AppLink>
       </div>
 
-      <AppLink
-        intentPrefetch
-        href={href}
-        className="group block px-1 transition-colors hover:text-foreground"
-      >
-        <h2 className="line-clamp-2 text-base/snug font-semibold text-foreground sm:text-lg/snug lg:text-xl/snug">
-          {event.title}
-        </h2>
-      </AppLink>
-
-      <div
-        ref={containerRef}
-        className="relative w-full overflow-hidden px-1"
-        style={{ height: chartHeight }}
-      >
-        {isActive && containerWidth > 0 && chartData.length > 0
-          ? (
-              <>
-                <PredictionChart
-                  data={chartData}
-                  series={series}
-                  width={Math.max(0, containerWidth - 8)}
-                  height={chartHeight}
-                  margin={{ top: 8, right: 8, bottom: 16, left: 8 }}
-                  showXAxis={false}
-                  showYAxis={false}
-                  showHorizontalGrid
-                  gridLineOpacity={0.2}
-                  lineStrokeWidth={2}
-                  showAreaFill
-                  areaFillTopOpacity={0.18}
-                  areaFillBottomOpacity={0}
-                  onCursorDataChange={setSnapshot}
-                  tooltipValueFormatter={formatChartPrice}
+      {/* Two-column desktop (40% outcomes left / 60% chart right).
+          Mobile: chart on top (order-1), outcomes below (order-2). */}
+      <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[40%_60%] lg:gap-4">
+        {/* Outcome list column — vertically stacked rows. */}
+        {seriesEntries.length > 0 && (
+          <div className="order-2 flex flex-col gap-1.5 px-1 lg:order-1 lg:gap-2">
+            {seriesEntries.map(s => (
+              <div
+                key={s.key}
+                className="flex min-w-0 items-center gap-2 rounded-md py-1 text-sm"
+              >
+                <span
+                  aria-hidden
+                  className="size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: s.color }}
                 />
-                {hoverPrice && hoverDate && (
-                  <div
-                    className="
-                      pointer-events-none absolute top-2 right-2 rounded-md border border-border/60 bg-card/90 px-2 py-1
-                      text-xs shadow-sm backdrop-blur-sm
-                    "
-                  >
-                    <span className="font-semibold tabular-nums" style={{ color: lineColor }}>
-                      {hoverPrice}
-                    </span>
-                    <span className="ml-2 text-muted-foreground">{hoverDate}</span>
-                  </div>
-                )}
-              </>
-            )
-          : <HomeV2HeroChartSkeleton />}
+                <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                  {s.label}
+                </span>
+                <span className="shrink-0 font-semibold text-foreground tabular-nums">
+                  {s.currentPercent}
+                  %
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Chart column. Margin reserves room for right-side Y-axis labels and bottom date axis. */}
+        <div
+          ref={containerRef}
+          className="relative order-1 w-full overflow-hidden px-1 lg:order-2"
+          style={{ height: chartHeight }}
+        >
+          {isActive && containerWidth > 0 && dataPoints.length > 0 && series.length > 0
+            ? (
+                <>
+                  <PredictionChart
+                    data={dataPoints}
+                    series={series}
+                    width={Math.max(0, containerWidth - 8)}
+                    height={chartHeight}
+                    margin={{ top: 8, right: 36, bottom: 22, left: 4 }}
+                    showXAxis
+                    showYAxis
+                    showHorizontalGrid
+                    gridLineOpacity={0.2}
+                    lineStrokeWidth={2}
+                    xAxisTickCount={4}
+                    onCursorDataChange={setSnapshot}
+                    tooltipValueFormatter={formatPercent}
+                  />
+                  {hoverDate && (
+                    <div
+                      className="
+                        pointer-events-none absolute top-1 left-2 rounded-md border border-border/60 bg-card/90 px-2
+                        py-1 text-xs shadow-sm backdrop-blur-sm
+                      "
+                    >
+                      <span className="text-muted-foreground">{hoverDate}</span>
+                    </div>
+                  )}
+                </>
+              )
+            : <HomeV2HeroChartSkeleton />}
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 px-1">
-        <span className="
-          inline-flex items-center gap-1.5 rounded-full bg-(--yes)/10 px-3 py-1 text-xs font-semibold text-(--yes)
-        "
-        >
-          Yes
-          <span className="tabular-nums">
-            {yesProbability}
-            %
-          </span>
-        </span>
-        <span className="
-          inline-flex items-center gap-1.5 rounded-full bg-(--no)/10 px-3 py-1 text-xs font-semibold text-(--no)
-        "
-        >
-          No
-          <span className="tabular-nums">
-            {noProbability}
-            %
-          </span>
-        </span>
-      </div>
-
+      {/* Footer: Volume + market count. */}
       <div className="flex items-center gap-2 px-1 pb-1 text-xs text-muted-foreground">
         <span className="font-medium text-foreground tabular-nums">
           Vol

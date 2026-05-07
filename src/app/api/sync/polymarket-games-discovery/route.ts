@@ -70,6 +70,10 @@ async function handleGamesDiscoverySync(request: Request): Promise<NextResponse<
 
   const results: SlugSyncResult[] = []
   const successfulSlugs: string[] = []
+  // Track leagues that had at least one successful upsert so we can bust
+  // the per-league `discoveredGamesList` cache used by the home-v2 league
+  // shelves (Step 3 sports-forward).
+  const successfulLeagues = new Set<string>()
 
   for (const league of DISCOVERED_GAMES_LEAGUES) {
     let events: readonly import('@/lib/polymarket/types').PolymarketEvent[] | null
@@ -154,6 +158,7 @@ async function handleGamesDiscoverySync(request: Request): Promise<NextResponse<
         }
 
         successfulSlugs.push(normalized.slug)
+        successfulLeagues.add(league.slug)
         results.push({
           slug: normalized.slug,
           league: league.slug,
@@ -188,7 +193,15 @@ async function handleGamesDiscoverySync(request: Request): Promise<NextResponse<
     revalidateTag(cacheTags.discoveredGame(slug), 'max')
     revalidatePath(`/event/${slug}`)
   }
+  // Per-league + sidebar cache busts for the home-v2 league shelves and
+  // random-game sidebar list. Outside the per-row loop so we only fire once
+  // per league (and once total for the sidebar) regardless of how many
+  // games synced.
+  for (const leagueSlug of successfulLeagues) {
+    revalidateTag(cacheTags.discoveredGamesList(leagueSlug), 'max')
+  }
   if (successfulSlugs.length > 0) {
+    revalidateTag(cacheTags.discoveredGamesSidebar, 'max')
     revalidateTag(cacheTags.eventsList, 'max')
   }
 

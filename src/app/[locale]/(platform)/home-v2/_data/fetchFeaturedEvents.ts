@@ -1,3 +1,4 @@
+// DEPRECATED: superseded by fetchFeaturedFuturesData; remove during Step 6 cutover.
 import type { SupportedLocale } from '@/i18n/locales'
 import type { Event } from '@/types'
 import { EventRepository } from '@/lib/db/queries/event'
