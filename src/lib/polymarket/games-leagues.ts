@@ -95,3 +95,24 @@ export function getLeagueForGameSlug(slug: string): DiscoveredGamesLeague | unde
 export function isDiscoveryGameSlug(slug: string): boolean {
   return getLeagueForGameSlug(slug) !== undefined
 }
+
+/**
+ * Returns the league entry whose `sportRouteSlug` field matches `sportRouteSlug`,
+ * or `undefined` if no registered league uses that URL segment. Used by
+ * Stream 2's list-route dispatch to map URL tokens like `'baseball'` onto
+ * the discovery sidecar `league` value (`'mlb'`).
+ */
+export function getLeagueBySportRouteSlug(
+  sportRouteSlug: string,
+): DiscoveredGamesLeague | undefined {
+  return DISCOVERED_GAMES_LEAGUES.find(league => league.sportRouteSlug === sportRouteSlug)
+}
+
+/**
+ * Returns the league entry whose `slug` matches `slug`, or `undefined`. Used
+ * by Stream 2's list-route dispatch as the canonical-token fallback when the
+ * URL token equals the registry's league slug directly (e.g., `/sports/mlb/games`).
+ */
+export function getLeagueBySlug(slug: string): DiscoveredGamesLeague | undefined {
+  return DISCOVERED_GAMES_LEAGUES.find(league => league.slug === slug)
+}

@@ -47,12 +47,39 @@ const SPORTS_EVENT_PAGE_PATH = resolve(
   'src/app/[locale]/(platform)/sports/[sport]/[event]/page.tsx',
 )
 
+// Stream 2 (Phase B v2 v3): list-route equivalents of the per-event template.
+// Same cache-boundary discipline applies — the data-only fetcher inside
+// `sports-games-list-data.tsx` returns a null sentinel; the thin delegator
+// at `sports/[sport]/games/page.tsx` forwards to outer non-cached helpers
+// that call notFound() based on the null check.
+const SPORTS_GAMES_LIST_DATA_PATH = resolve(
+  __dirname,
+  '..',
+  '..',
+  'src/app/[locale]/(platform)/sports/_utils/sports-games-list-data.tsx',
+)
+
+const SPORTS_GAMES_LIST_PAGE_PATH = resolve(
+  __dirname,
+  '..',
+  '..',
+  'src/app/[locale]/(platform)/sports/[sport]/games/page.tsx',
+)
+
 function loadSource(): string {
   return readFileSync(SOURCE_PATH, 'utf8')
 }
 
 function loadOuterPageSource(): string {
   return readFileSync(SPORTS_EVENT_PAGE_PATH, 'utf8')
+}
+
+function loadListDataSource(): string {
+  return readFileSync(SPORTS_GAMES_LIST_DATA_PATH, 'utf8')
+}
+
+function loadListPageSource(): string {
+  return readFileSync(SPORTS_GAMES_LIST_PAGE_PATH, 'utf8')
 }
 
 /**
@@ -208,6 +235,51 @@ describe('sports/[sport]/[event]/page.tsx — outer-caller pattern', () => {
   it('the outer page.tsx exists and imports the renderer', () => {
     const source = loadOuterPageSource()
     expect(source).toMatch(/renderSportsVerticalEventPage/)
+  })
+})
+
+describe('sports-games-list-data cache-boundary fix — Stream 2 (Phase B v2 v3) static invariants', () => {
+  // The Stream 2 list-route refactor mirrors the per-event template:
+  //   - `fetchSportsGamesListCachedData` is the `'use cache'` data-only
+  //     fetcher; returns null sentinel.
+  //   - `generateSportsGamesListMetadata` + `renderSportsGamesListPage` are
+  //     the outer non-cached callers; they call notFound() based on the
+  //     null check.
+  //
+  // These tests drift-lock the same invariant against the new file so a
+  // future refactor can't silently regress to the Phase A v2 P0 anti-pattern.
+  it('no `\'use cache\'` function in sports-games-list-data invokes notFound() directly', () => {
+    const source = loadListDataSource()
+    const cachedBodies = extractUseCacheFunctionBodies(source)
+
+    cachedBodies.forEach((body, idx) => {
+      const containsNotFound = /\bnotFound\s*\(/.test(body)
+      expect(
+        containsNotFound,
+        `Stream 2 regression: 'use cache' function body #${idx} in sports-games-list-data.tsx contains notFound() — moves status commit before render. Use null sentinel + outer caller pattern instead.`,
+      ).toBe(false)
+    })
+  })
+
+  it('sports-games-list-data still imports notFound from next/navigation', () => {
+    const source = loadListDataSource()
+    expect(source).toMatch(/import\s+\{[^}]*\bnotFound\b[^}]*\}\s+from\s+['"]next\/navigation['"]/)
+  })
+
+  it('sports/[sport]/games/page.tsx delegates to renderSportsGamesListPage and has NO module-level `\'use cache\'`', () => {
+    const source = loadListPageSource()
+    expect(source).toMatch(/renderSportsGamesListPage/)
+    // The Stream 2 cache-boundary fix REQUIRES the module-level `'use cache'`
+    // be removed from the route file. The directive belongs INSIDE the data
+    // fetcher in `_utils/sports-games-list-data.tsx`, not at the module top.
+    // This assertion regression-locks that fix.
+    const moduleTopUseCache = /^\s*['"]use cache['"]\s*(?:;\s*)?$/m
+    // Only flag if it's near the top of the file (within first 10 lines).
+    const firstTenLines = source.split('\n').slice(0, 10).join('\n')
+    expect(
+      moduleTopUseCache.test(firstTenLines),
+      'Stream 2 regression: sports/[sport]/games/page.tsx has module-level `\'use cache\'`. Remove it; the cache directive belongs inside the data fetcher in `_utils/sports-games-list-data.tsx`.',
+    ).toBe(false)
   })
 })
 

@@ -12,7 +12,7 @@ import { buildSportsGamesCards } from '@/app/[locale]/(platform)/sports/_utils/s
 import { cacheTags } from '@/lib/cache-tags'
 import { DiscoveredGamesRepository } from '@/lib/db/queries/discovered-games'
 import { TeamsCacheRepository } from '@/lib/db/queries/teams-cache'
-import { getLeagueForGameSlug } from '@/lib/polymarket/games-leagues'
+import { getLeagueBySlug, getLeagueForGameSlug } from '@/lib/polymarket/games-leagues'
 import { DiscoveredGameMarketsPayloadSchema } from '@/lib/polymarket/normalize-games-discovery-payload'
 import 'server-only'
 
@@ -508,4 +508,71 @@ export async function loadDiscoveredGameSportsCard(slug: string): Promise<Sports
   }
 
   return buildSportsGamesCardFromGameRow(row, homeRow ?? null, awayRow ?? null, sportRouteSlug)
+}
+
+/**
+ * Stream 2 (Phase B v2 v3) — batch projection helper for the sports list
+ * route. Mirrors `loadDiscoveredGameSportsCard` (single-slug) but loads every
+ * tradeable row for a league in two queries (rows + teams) and projects each
+ * row using the shared pure helper `buildSportsGamesCardFromGameRow`.
+ *
+ * Filter (Allan policy 2026-05-07): `is_active = true AND is_closed = false`.
+ * The repository's `listActiveByLeague` already excludes archived rows; this
+ * helper applies the tighter "currently tradeable" filter on top.
+ *
+ * Wrapped in `'use cache'` with two cache tags:
+ *   - `cacheTags.discoveredGamesList(league)` — Stream 2 list-route tag
+ *     busted per-league by the discovery + refresh sync routes.
+ *   - `cacheTags.teamsCache(league)` — busted by the teams sync.
+ *
+ * Performance: one Postgres round-trip for rows + one for teams + an O(n)
+ * map build, vs the per-slug helper's 1 + 2N round-trips. Acceptable at the
+ * production volumes observed (~30 rows/league/day).
+ */
+export async function loadDiscoveredGameSportsCardsByLeague(
+  leagueSlug: string,
+): Promise<SportsGamesCard[]> {
+  'use cache'
+
+  cacheTag(cacheTags.discoveredGamesList(leagueSlug))
+  cacheTag(cacheTags.teamsCache(leagueSlug))
+
+  const league = getLeagueBySlug(leagueSlug)
+  if (!league) {
+    return []
+  }
+
+  const [{ data: rows }, { data: teams }] = await Promise.all([
+    DiscoveredGamesRepository.listActiveByLeague(leagueSlug),
+    TeamsCacheRepository.listByLeague(leagueSlug),
+  ])
+  if (!rows || rows.length === 0) {
+    return []
+  }
+
+  // Allan policy: list page surfaces only currently-tradeable games.
+  const tradeable = rows.filter(row => row.isActive && !row.isClosed)
+  if (tradeable.length === 0) {
+    return []
+  }
+
+  const teamMap = new Map<string, TeamCacheRow>()
+  for (const team of teams ?? []) {
+    teamMap.set(team.abbreviation, team)
+  }
+
+  const cards: SportsGamesCard[] = []
+  for (const row of tradeable) {
+    const parsed = parseGameSlugTeams(row.slug)
+    if (!parsed) {
+      continue
+    }
+    const homeTeam = teamMap.get(parsed.homeAbbr) ?? null
+    const awayTeam = teamMap.get(parsed.awayAbbr) ?? null
+    const card = buildSportsGamesCardFromGameRow(row, homeTeam, awayTeam, league.sportRouteSlug)
+    if (card) {
+      cards.push(card)
+    }
+  }
+  return cards
 }

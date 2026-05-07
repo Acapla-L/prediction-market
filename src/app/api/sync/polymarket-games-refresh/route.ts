@@ -4,7 +4,7 @@ import { isCronAuthorized } from '@/lib/auth-cron'
 import { cacheTags } from '@/lib/cache-tags'
 import { DiscoveredGamesRepository } from '@/lib/db/queries/discovered-games'
 import { fetchPolymarketGammaEvent } from '@/lib/polymarket/client'
-import { getLeagueForGameSlug } from '@/lib/polymarket/games-leagues'
+import { getLeagueBySlug, getLeagueForGameSlug } from '@/lib/polymarket/games-leagues'
 import {
   normalizeGamesDiscoveryPayload,
   serializeGamesDiscoveryPayload,
@@ -162,6 +162,27 @@ async function handleGamesRefreshSync(request: Request): Promise<NextResponse<Re
   for (const slug of successfulSlugs) {
     revalidateTag(cacheTags.discoveredGame(slug), 'max')
     revalidatePath(`/event/${slug}`)
+  }
+
+  // Stream 2 (Phase B v2 v3): bust per-league list-route cache for every
+  // league touched by this refresh run, so /sports/{sportRouteSlug}/games
+  // surfaces fresh prices/lifecycle flags. Track unique leagues from the
+  // successful slugs (avoids redundant revalidations when many games for
+  // the same league refresh in the same run).
+  const touchedLeagues = new Set<string>()
+  for (const slug of successfulSlugs) {
+    const league = getLeagueForGameSlug(slug)
+    if (league) {
+      touchedLeagues.add(league.slug)
+    }
+  }
+  for (const leagueSlug of touchedLeagues) {
+    revalidateTag(cacheTags.discoveredGamesList(leagueSlug), 'max')
+    const league = getLeagueBySlug(leagueSlug)
+    if (league) {
+      revalidatePath(`/en/sports/${league.sportRouteSlug}/games`)
+      revalidatePath(`/en/sports/${league.slug}/games`)
+    }
   }
 
   return NextResponse.json({
