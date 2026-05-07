@@ -71,10 +71,7 @@ export default function HomeV2Hero({ events, chartDataByEvent }: HomeV2HeroProps
       aria-roledescription="carousel"
       aria-label="Featured markets"
     >
-      <div className="mb-2 flex items-center justify-between gap-3 lg:mb-3">
-        <span className="text-2xs font-semibold tracking-wider text-muted-foreground uppercase">
-          Featured
-        </span>
+      <div className="mb-2 flex items-center justify-end gap-3 lg:mb-3">
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground tabular-nums">
             {activeIndex + 1}
