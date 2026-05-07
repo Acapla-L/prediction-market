@@ -71,41 +71,39 @@ export default function HomeV2Hero({ events, chartDataByEvent }: HomeV2HeroProps
       aria-roledescription="carousel"
       aria-label="Featured markets"
     >
-      <div className="mb-2 flex items-center justify-end gap-3 lg:mb-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {activeIndex + 1}
-            {' of '}
-            {events.length}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={scrollPrev}
-              aria-label="Previous slide"
-              className="
-                flex size-7 items-center justify-center rounded-full border border-border bg-card text-foreground
-                transition-colors
-                hover:bg-accent
-                focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none
-              "
-            >
-              <ChevronLeftIcon className="size-4" />
-            </button>
-            <button
-              type="button"
-              onClick={scrollNext}
-              aria-label="Next slide"
-              className="
-                flex size-7 items-center justify-center rounded-full border border-border bg-card text-foreground
-                transition-colors
-                hover:bg-accent
-                focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none
-              "
-            >
-              <ChevronRightIcon className="size-4" />
-            </button>
-          </div>
+      <div className="pointer-events-none absolute top-3 right-3 z-10 flex items-center gap-2 lg:top-5 lg:right-5">
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {activeIndex + 1}
+          {' of '}
+          {events.length}
+        </span>
+        <div className="pointer-events-auto flex items-center gap-1">
+          <button
+            type="button"
+            onClick={scrollPrev}
+            aria-label="Previous slide"
+            className="
+              flex size-7 items-center justify-center rounded-full border border-border bg-card text-foreground
+              transition-colors
+              hover:bg-accent
+              focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none
+            "
+          >
+            <ChevronLeftIcon className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={scrollNext}
+            aria-label="Next slide"
+            className="
+              flex size-7 items-center justify-center rounded-full border border-border bg-card text-foreground
+              transition-colors
+              hover:bg-accent
+              focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none
+            "
+          >
+            <ChevronRightIcon className="size-4" />
+          </button>
         </div>
       </div>
 

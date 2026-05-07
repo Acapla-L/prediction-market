@@ -118,7 +118,7 @@ export default function HomeV2HeroSlide({ event, isActive, chartConfig }: HomeV2
           intentPrefetch
           href={href}
           className="
-            shrink-0 pt-1 text-xs font-medium whitespace-nowrap text-primary transition-colors
+            shrink-0 pt-9 text-xs font-medium whitespace-nowrap text-primary transition-colors
             hover:text-primary/80
           "
         >
