@@ -333,7 +333,22 @@ export function buildSyntheticEvent(
     created_at: eventCreatedAt,
     updated_at: syncedAtIso,
     markets,
-    tags: [],
+    // Games tag triggers EventCardSportsMoneyline render path via hasGamesTag()
+    // gate in sports-home-card.ts. Required for home-v2 sport sections to use
+    // team-vs-team card template (logos + percentages + color-coded buttons +
+    // footer template). `main_tag` is intentionally left as the league code so
+    // the per-event sports template's filtering/grouping logic is unaffected.
+    // Drift-locked by tests/unit/synthesizeSportsCard.test.ts.
+    tags: [
+      // Inline shape per Event['tags'] (4 fields, camelCase). Distinct from the
+      // standalone Tag interface (9 fields, snake_case) used by the admin/DB layer.
+      {
+        id: 0,
+        name: 'Games',
+        slug: 'games',
+        isMainCategory: false,
+      },
+    ],
     main_tag: row.league,
     is_bookmarked: false,
     is_trending: false,

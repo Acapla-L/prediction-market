@@ -1,11 +1,11 @@
-import type { DiscoveredGameRow } from '@/lib/db/queries/discovered-games'
+import type { SidebarGameWithLeading } from '@/app/[locale]/(platform)/home-v2/_data/fetchSidebarData'
 import AppLink from '@/components/AppLink'
 import { Card } from '@/components/ui/card'
 import { getLeagueForGameSlug } from '@/lib/polymarket/games-leagues'
 
 interface SidebarGameListCardProps {
   title: string
-  games: DiscoveredGameRow[]
+  games: SidebarGameWithLeading[]
   emptyLabel?: string
 }
 
@@ -14,29 +14,20 @@ interface ResolvedGameRow {
   href: string | null
   awayLabel: string
   homeLabel: string
-  startLabel: string
+  leadingLabel: string | null
+  leadingPercent: number | null
 }
 
-function formatStartTime(iso: string): string {
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) {
-    return ''
-  }
-  // Hours + minutes only; locale-neutral 24h format keeps the row compact.
-  const hours = String(date.getUTCHours()).padStart(2, '0')
-  const minutes = String(date.getUTCMinutes()).padStart(2, '0')
-  return `${hours}:${minutes}`
-}
-
-function resolveRow(game: DiscoveredGameRow): ResolvedGameRow {
-  const league = getLeagueForGameSlug(game.slug)
-  const href = league ? `/sports/${league.sportRouteSlug}/${game.slug}` : null
+function resolveRow(game: SidebarGameWithLeading): ResolvedGameRow {
+  const league = getLeagueForGameSlug(game.row.slug)
+  const href = league ? `/sports/${league.sportRouteSlug}/${game.row.slug}` : null
   return {
-    key: game.slug,
+    key: game.row.slug,
     href,
-    awayLabel: (game.awayTeamLabel ?? '').toUpperCase(),
-    homeLabel: (game.homeTeamLabel ?? '').toUpperCase(),
-    startLabel: formatStartTime(game.gameStartTime),
+    awayLabel: (game.row.awayTeamLabel ?? '').toUpperCase(),
+    homeLabel: (game.row.homeTeamLabel ?? '').toUpperCase(),
+    leadingLabel: game.leading?.label ?? null,
+    leadingPercent: game.leading?.percent ?? null,
   }
 }
 
@@ -81,14 +72,21 @@ export default function SidebarGameListCard({
           ? `${row.awayLabel} @ ${row.homeLabel}`
           : '—'
 
+        const hasLeading = row.leadingLabel !== null && row.leadingPercent !== null
         const inner = (
           <>
             <span className="line-clamp-1 flex-1 text-xs/snug font-medium text-foreground">
               {teamsLine}
             </span>
-            {row.startLabel && (
-              <span className="shrink-0 text-2xs tracking-wide text-muted-foreground uppercase tabular-nums">
-                {row.startLabel}
+            {hasLeading && (
+              <span className="
+                line-clamp-1 max-w-[45%] shrink-0 text-2xs tracking-wide text-muted-foreground tabular-nums
+              "
+              >
+                {row.leadingLabel}
+                {' '}
+                {row.leadingPercent}
+                %
               </span>
             )}
           </>

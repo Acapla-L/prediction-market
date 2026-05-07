@@ -1,7 +1,6 @@
 'use client'
 
-import type { FeaturedFuturesLeading } from '@/app/[locale]/(platform)/home-v2/_data/fetchFeaturedFuturesData'
-import type { HeroChartEntry } from '@/app/[locale]/(platform)/home-v2/_data/fetchHeroChartData'
+import type { HeroChartConfig } from '@/app/[locale]/(platform)/home-v2/_data/fetchFeaturedFuturesData'
 import type { Event } from '@/types'
 import useEmblaCarousel from 'embla-carousel-react'
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
@@ -11,11 +10,10 @@ import { Card } from '@/components/ui/card'
 
 interface HomeV2HeroProps {
   events: Event[]
-  chartData: Record<string, HeroChartEntry>
-  leadingByEvent?: Record<string, FeaturedFuturesLeading>
+  chartDataByEvent: Record<string, HeroChartConfig>
 }
 
-export default function HomeV2Hero({ events, chartData, leadingByEvent }: HomeV2HeroProps) {
+export default function HomeV2Hero({ events, chartDataByEvent }: HomeV2HeroProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel({
     loop: true,
     align: 'start',
@@ -121,8 +119,7 @@ export default function HomeV2Hero({ events, chartData, leadingByEvent }: HomeV2
               key={event.id}
               event={event}
               isActive={index === activeIndex}
-              chartEntry={chartData[event.id] ?? null}
-              leading={leadingByEvent?.[event.id] ?? null}
+              chartConfig={chartDataByEvent[event.id] ?? null}
             />
           ))}
         </div>

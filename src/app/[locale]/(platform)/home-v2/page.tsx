@@ -72,8 +72,7 @@ export default async function HomeV2Page({ params }: HomeV2PageProps) {
         <div className="flex min-w-0 flex-col gap-6 lg:gap-8">
           <HomeV2Hero
             events={featuredFutures.events}
-            chartData={featuredFutures.chartData}
-            leadingByEvent={featuredFutures.leadingByEvent}
+            chartDataByEvent={featuredFutures.chartDataByEvent}
           />
 
           {/* Marketplace card appears under the hero on mobile; on desktop it lives in the sidebar. */}

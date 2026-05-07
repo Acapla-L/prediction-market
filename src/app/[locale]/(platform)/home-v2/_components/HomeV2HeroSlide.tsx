@@ -1,7 +1,6 @@
 'use client'
 
-import type { FeaturedFuturesLeading } from '@/app/[locale]/(platform)/home-v2/_data/fetchFeaturedFuturesData'
-import type { HeroChartEntry } from '@/app/[locale]/(platform)/home-v2/_data/fetchHeroChartData'
+import type { HeroChartConfig } from '@/app/[locale]/(platform)/home-v2/_data/fetchFeaturedFuturesData'
 import type { Event } from '@/types'
 import type { PredictionChartCursorSnapshot, SeriesConfig } from '@/types/PredictionChartTypes'
 import dynamic from 'next/dynamic'
@@ -10,15 +9,8 @@ import HomeV2HeroChartSkeleton from '@/app/[locale]/(platform)/home-v2/_componen
 import AppLink from '@/components/AppLink'
 import { Badge } from '@/components/ui/badge'
 import { useIsMobile } from '@/hooks/useIsMobile'
-import { OUTCOME_INDEX } from '@/lib/constants'
 import { resolveEventPagePath } from '@/lib/events-routing'
 import { formatVolume } from '@/lib/formatters'
-import { buildChanceByMarket } from '@/lib/market-chance'
-
-// Inlined — must match CHART_SERIES_KEY in fetchHeroChartData.ts.
-// Cannot import from that file because it pulls EventRepository (drizzle,
-// 'use cache', 'server-only') into the client bundle, breaking Turbopack.
-const CHART_SERIES_KEY = 'price'
 
 // PredictionChart is the pure Visx renderer used by every chart on the platform.
 // We render it directly with pre-fetched server-side data — no client-side hooks,
@@ -31,26 +23,8 @@ const PredictionChart = dynamic(
 interface HomeV2HeroSlideProps {
   event: Event
   isActive: boolean
-  chartEntry: HeroChartEntry | null
-  /**
-   * When present, render a leading-outcome pill (e.g. "Spain · 17%") plus a
-   * "+N more markets" badge in place of the binary Yes/No probability pills.
-   * Used by the Phase A v2 futures hero (multi-market neg-risk events).
-   */
-  leading?: FeaturedFuturesLeading | null
-}
-
-function pickOutcomeProbability(event: Event, outcomeIndex: 0 | 1): number {
-  const chanceByMarket = buildChanceByMarket(event.markets, {})
-  const primary = event.markets[0]
-  if (!primary) {
-    return 0
-  }
-  const yesChance = chanceByMarket[primary.condition_id] ?? 0
-  if (outcomeIndex === OUTCOME_INDEX.YES) {
-    return Math.round(yesChance)
-  }
-  return Math.round(100 - yesChance)
+  /** Multi-line chart config (top-4 outcomes). Null → renders skeleton. */
+  chartConfig: HeroChartConfig | null
 }
 
 function resolveCategoryLabel(event: Event): string {
@@ -81,39 +55,30 @@ function useContainerWidth(): [React.RefObject<HTMLDivElement | null>, number] {
   return [ref, width]
 }
 
-function formatChartPrice(value: number): string {
-  if (value >= 1000) {
-    return `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-  }
-  return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+function formatPercent(value: number): string {
+  return `${Math.round(value)}%`
 }
 
-export default function HomeV2HeroSlide({ event, isActive, chartEntry, leading }: HomeV2HeroSlideProps) {
+export default function HomeV2HeroSlide({ event, isActive, chartConfig }: HomeV2HeroSlideProps) {
   const [containerRef, containerWidth] = useContainerWidth()
   const isMobile = useIsMobile()
   const chartHeight = isMobile ? 140 : 180
   const [snapshot, setSnapshot] = useState<PredictionChartCursorSnapshot | null>(null)
-  const yesProbability = pickOutcomeProbability(event, OUTCOME_INDEX.YES)
-  const noProbability = 100 - yesProbability
   const categoryLabel = resolveCategoryLabel(event)
   const href = resolveEventPagePath(event)
   const totalMarkets = Math.max(event.total_markets_count, event.markets.length)
-  const chartData = chartEntry?.data ?? []
-  const lineColor = chartEntry?.lineColor ?? 'var(--primary)'
+
+  const dataPoints = chartConfig?.dataPoints ?? []
+  const seriesEntries = chartConfig?.series ?? []
 
   const series = useMemo<SeriesConfig[]>(
-    () => [{ key: CHART_SERIES_KEY, name: event.title, color: lineColor }],
-    [event.title, lineColor],
+    () => seriesEntries.map(s => ({ key: s.key, name: s.label, color: s.color })),
+    [seriesEntries],
   )
 
-  const hoverPrice = useMemo(() => {
-    if (!snapshot) {
-      return null
-    }
-    const raw = snapshot.values[CHART_SERIES_KEY]
-    return typeof raw === 'number' ? formatChartPrice(raw) : null
-  }, [snapshot])
-
+  // Hover tooltip — show the leading series' value at the cursor (or first
+  // available). For multi-line, header label row is always visible; the
+  // tooltip itself is decorative.
   const hoverDate = useMemo(() => {
     if (!snapshot) {
       return null
@@ -121,8 +86,6 @@ export default function HomeV2HeroSlide({ event, isActive, chartEntry, leading }
     return snapshot.date.toLocaleDateString(undefined, {
       month: 'short',
       day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
     })
   }, [snapshot])
 
@@ -154,16 +117,36 @@ export default function HomeV2HeroSlide({ event, isActive, chartEntry, leading }
         </h2>
       </AppLink>
 
+      {/* Top-4 outcome label row — Polymarket-style header. */}
+      {seriesEntries.length > 0 && (
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1 px-1 sm:flex sm:flex-wrap sm:items-center sm:gap-x-4">
+          {seriesEntries.map(s => (
+            <div key={s.key} className="flex min-w-0 items-center gap-1.5 text-xs">
+              <span
+                aria-hidden
+                className="size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: s.color }}
+              />
+              <span className="truncate font-medium text-foreground">{s.label}</span>
+              <span className="ml-auto shrink-0 font-semibold text-foreground tabular-nums sm:ml-0">
+                {s.currentPercent}
+                %
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div
         ref={containerRef}
         className="relative w-full overflow-hidden px-1"
         style={{ height: chartHeight }}
       >
-        {isActive && containerWidth > 0 && chartData.length > 0
+        {isActive && containerWidth > 0 && dataPoints.length > 0 && series.length > 0
           ? (
               <>
                 <PredictionChart
-                  data={chartData}
+                  data={dataPoints}
                   series={series}
                   width={Math.max(0, containerWidth - 8)}
                   height={chartHeight}
@@ -173,85 +156,22 @@ export default function HomeV2HeroSlide({ event, isActive, chartEntry, leading }
                   showHorizontalGrid
                   gridLineOpacity={0.2}
                   lineStrokeWidth={2}
-                  showAreaFill
-                  areaFillTopOpacity={0.18}
-                  areaFillBottomOpacity={0}
                   onCursorDataChange={setSnapshot}
-                  tooltipValueFormatter={formatChartPrice}
+                  tooltipValueFormatter={formatPercent}
                 />
-                {hoverPrice && hoverDate && (
+                {hoverDate && (
                   <div
                     className="
                       pointer-events-none absolute top-2 right-2 rounded-md border border-border/60 bg-card/90 px-2 py-1
                       text-xs shadow-sm backdrop-blur-sm
                     "
                   >
-                    <span className="font-semibold tabular-nums" style={{ color: lineColor }}>
-                      {hoverPrice}
-                    </span>
-                    <span className="ml-2 text-muted-foreground">{hoverDate}</span>
+                    <span className="text-muted-foreground">{hoverDate}</span>
                   </div>
                 )}
               </>
             )
           : <HomeV2HeroChartSkeleton />}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 px-1">
-        {leading
-          ? (
-              <>
-                <span className="
-                  inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold
-                  text-primary
-                "
-                >
-                  <span className="max-w-48 truncate">{leading.label}</span>
-                  <span aria-hidden>·</span>
-                  <span className="tabular-nums">
-                    {leading.percent}
-                    %
-                  </span>
-                </span>
-                {leading.otherMarketsCount > 0 && (
-                  <span className="
-                    inline-flex items-center rounded-full border border-border bg-card px-3 py-1 text-xs font-medium
-                    text-muted-foreground
-                  "
-                  >
-                    +
-                    {leading.otherMarketsCount}
-                    {' '}
-                    more
-                  </span>
-                )}
-              </>
-            )
-          : (
-              <>
-                <span className="
-                  inline-flex items-center gap-1.5 rounded-full bg-(--yes)/10 px-3 py-1 text-xs font-semibold
-                  text-(--yes)
-                "
-                >
-                  Yes
-                  <span className="tabular-nums">
-                    {yesProbability}
-                    %
-                  </span>
-                </span>
-                <span className="
-                  inline-flex items-center gap-1.5 rounded-full bg-(--no)/10 px-3 py-1 text-xs font-semibold text-(--no)
-                "
-                >
-                  No
-                  <span className="tabular-nums">
-                    {noProbability}
-                    %
-                  </span>
-                </span>
-              </>
-            )}
       </div>
 
       <div className="flex items-center gap-2 px-1 pb-1 text-xs text-muted-foreground">

@@ -9,6 +9,7 @@ import {
 } from '@/lib/db/schema'
 import { db } from '@/lib/drizzle'
 import { DISCOVERED_SLUG_METADATA } from '@/lib/polymarket/discovered-slugs'
+import { DiscoveredGameMarketsPayloadSchema } from '@/lib/polymarket/normalize-games-discovery-payload'
 import 'server-only'
 
 export interface SidebarFutureRow {
@@ -17,9 +18,20 @@ export interface SidebarFutureRow {
   href: string
 }
 
+/**
+ * A leading-team derivation paired with the underlying discovered-game row.
+ * `leading` is `null` when the moneyline market couldn't be parsed (missing
+ * payload, missing prices, missing outcome labels, schema mismatch). The
+ * sidebar card renders the team-row without secondary text in that case.
+ */
+export interface SidebarGameWithLeading {
+  row: DiscoveredGameRow
+  leading: { label: string, percent: number } | null
+}
+
 export interface SidebarData {
-  trendingGames: DiscoveredGameRow[]
-  newGames: DiscoveredGameRow[]
+  trendingGames: SidebarGameWithLeading[]
+  newGames: SidebarGameWithLeading[]
   futures: SidebarFutureRow[]
   futuresShowAllHref: string
 }
@@ -48,6 +60,68 @@ function gameRowFromEntry(entry: typeof discovered_polymarket_games.$inferSelect
     lastSyncedAt: entry.last_synced_at.toISOString(),
     lastSyncStatus: entry.last_sync_status,
     lastSyncError: entry.last_sync_error,
+  }
+}
+
+/**
+ * Derives the leading team and percentage for a sidebar row from the game's
+ * moneyline market. Polymarket per-game moneylines have 2 outcomes whose
+ * labels ARE the team names (e.g. `["New York Yankees", "Boston Red Sox"]`)
+ * and whose prices express implied win probability. The higher-priced
+ * outcome's label + percent is the "leading team" we want to surface in
+ * place of the raw start time.
+ *
+ * Returns `null` if the payload can't be parsed, the moneyline market is
+ * absent, prices/outcomes are missing, or both prices parse to NaN — the
+ * sidebar card renders without a secondary span in that case.
+ */
+function deriveLeadingTeam(
+  marketsPayload: string,
+): { label: string, percent: number } | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(marketsPayload)
+  }
+  catch {
+    return null
+  }
+
+  const result = DiscoveredGameMarketsPayloadSchema.safeParse(parsed)
+  if (!result.success) {
+    return null
+  }
+
+  const moneyline = result.data.markets.find(m => m.market_type === 'moneyline')
+  if (!moneyline) {
+    return null
+  }
+  if (!moneyline.outcomes || !moneyline.outcome_prices) {
+    return null
+  }
+
+  const price0 = Number(moneyline.outcome_prices[0])
+  const price1 = Number(moneyline.outcome_prices[1])
+  if (Number.isNaN(price0) && Number.isNaN(price1)) {
+    return null
+  }
+
+  const useFirst = (Number.isNaN(price1)) || (price0 >= price1)
+  const winningPrice = useFirst ? price0 : price1
+  const winningLabel = useFirst ? moneyline.outcomes[0] : moneyline.outcomes[1]
+  if (!winningLabel || Number.isNaN(winningPrice)) {
+    return null
+  }
+
+  return {
+    label: winningLabel,
+    percent: Math.round(winningPrice * 100),
+  }
+}
+
+function attachLeading(row: DiscoveredGameRow): SidebarGameWithLeading {
+  return {
+    row,
+    leading: deriveLeadingTeam(row.marketsPayload),
   }
 }
 
@@ -84,8 +158,8 @@ export async function fetchSidebarData(locale: SupportedLocale): Promise<Sidebar
   // the trending and new sections. ORDER BY random() is acceptable for the
   // small `discovered_polymarket_games` table (~80 rows).
   const games = await fetchRandomDiscoveredGames(SIDEBAR_GAMES_PER_SECTION * 2)
-  const trendingGames = games.slice(0, SIDEBAR_GAMES_PER_SECTION)
-  const newGames = games.slice(SIDEBAR_GAMES_PER_SECTION, SIDEBAR_GAMES_PER_SECTION * 2)
+  const trendingGames = games.slice(0, SIDEBAR_GAMES_PER_SECTION).map(attachLeading)
+  const newGames = games.slice(SIDEBAR_GAMES_PER_SECTION, SIDEBAR_GAMES_PER_SECTION * 2).map(attachLeading)
 
   const activeSlugs = await fetchActiveFuturesSlugs()
   const futures: SidebarFutureRow[] = DISCOVERED_SLUG_METADATA
