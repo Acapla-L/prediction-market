@@ -22,7 +22,7 @@
 
 import type { DiscoveredGamesLeagueSlug } from '@/lib/polymarket/games-leagues'
 
-export type HomeV2SectionId = 'sports' | 'baseball' | 'basketball' | 'hockey' | 'soccer'
+export type HomeV2SectionId = 'baseball' | 'basketball' | 'hockey' | 'soccer'
 
 export interface HomeV2TagSectionConfig {
   kind: 'tag'
@@ -54,10 +54,9 @@ export type HomeV2SectionConfig = HomeV2TagSectionConfig | HomeV2LeagueSectionCo
 
 /**
  * Render order for Step 3:
- *   Sports overview (tag-driven) → Baseball → Basketball → Hockey → Soccer.
+ *   Baseball → Basketball → Hockey → Soccer.
  */
 export const HOME_V2_CATEGORIES: readonly HomeV2SectionConfig[] = [
-  { kind: 'tag', id: 'sports', tagSlug: 'sports', titleKey: 'Sports', href: '/sports' },
   { kind: 'league', id: 'baseball', leagueSlug: 'mlb', titleKey: 'Baseball', href: '/sports/baseball/games' },
   { kind: 'league', id: 'basketball', leagueSlug: 'nba', titleKey: 'Basketball', href: '/sports/basketball/games' },
   { kind: 'league', id: 'hockey', leagueSlug: 'nhl', titleKey: 'Hockey', href: '/sports/hockey/games' },

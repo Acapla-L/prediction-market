@@ -131,7 +131,7 @@ export function SidebarStaticListCard({ title, rows }: SidebarStaticListCardProp
             <span className="flex-1 text-xs font-medium text-foreground">
               {row.label}
             </span>
-            <ChevronRightIcon className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+            <ChevronRightIcon className="size-4 text-primary transition-transform group-hover:translate-x-0.5" />
           </a>
         )
       })}

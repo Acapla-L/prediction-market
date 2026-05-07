@@ -361,20 +361,23 @@ function buildSeparatedMoneylineModel(
     return null
   }
 
+  // Display abbreviations in uppercase (NYY, TEX, etc.) per Polymarket convention.
+  // teams_cache stores lowercased abbreviations (per session-031 PreWork.1) so this
+  // normalizes the display layer regardless of source.
   return {
     team1,
     team2,
     team1Button: toHomeButton({
       market: team1Market,
       outcome: team1Outcome,
-      label: team1.abbreviation,
+      label: team1.abbreviation.toUpperCase(),
       tone: 'team1',
       color: team1.color,
     }),
     team2Button: toHomeButton({
       market: team2Market,
       outcome: team2Outcome,
-      label: team2.abbreviation,
+      label: team2.abbreviation.toUpperCase(),
       tone: 'team2',
       color: team2.color,
     }),
@@ -416,14 +419,14 @@ function buildBinaryMoneylineModel(
       team1Button: toHomeButton({
         market,
         outcome: team1Outcome,
-        label: team1.abbreviation,
+        label: team1.abbreviation.toUpperCase(),
         tone: 'team1',
         color: team1.color,
       }),
       team2Button: toHomeButton({
         market,
         outcome: team2Outcome,
-        label: team2.abbreviation,
+        label: team2.abbreviation.toUpperCase(),
         tone: 'team2',
         color: team2.color,
       }),

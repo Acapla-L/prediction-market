@@ -652,4 +652,65 @@ describe('sportsHomeCard', () => {
     expect(resolveHomeSportsButtonChance(63, 0)).toBe(63)
     expect(resolveHomeSportsButtonChance(63, 1)).toBe(37)
   })
+
+  it('buildHomeSportsMoneylineModel produces uppercase button labels regardless of source casing', () => {
+    // teams_cache stores lowercased abbreviations (per session-031 PreWork.1).
+    // Display layer must normalize to uppercase per Polymarket convention.
+    const event = {
+      sports_sport_slug: 'mlb',
+      main_tag: 'games',
+      tags: [
+        {
+          id: 1,
+          name: 'Games',
+          slug: 'games',
+          isMainCategory: true,
+        },
+      ],
+      sports_teams: [
+        {
+          name: 'New York Yankees',
+          abbreviation: 'nyy', // lowercase from teams_cache
+          color: '#1d4ed8',
+          host_status: 'home',
+          logo_url: null,
+        },
+        {
+          name: 'Texas Rangers',
+          abbreviation: 'tex', // lowercase from teams_cache
+          color: '#dc2626',
+          host_status: 'away',
+          logo_url: null,
+        },
+      ],
+      sports_team_logo_urls: null,
+      markets: [
+        {
+          condition_id: 'mlb-match-winner',
+          sports_market_type: null,
+          sports_group_item_title: null,
+          short_title: 'Match Winner',
+          title: 'Match Winner',
+          outcomes: [
+            {
+              outcome_index: 0,
+              outcome_text: 'New York Yankees',
+            },
+            {
+              outcome_index: 1,
+              outcome_text: 'Texas Rangers',
+            },
+          ],
+        },
+      ],
+    } as any
+
+    const model = buildHomeSportsMoneylineModel(event)
+
+    expect(model).not.toBeNull()
+    expect(model?.team1Button.label).toBe('NYY')
+    expect(model?.team2Button.label).toBe('TEX')
+    expect(model?.team1Button.label).toBe(model?.team1Button.label.toUpperCase())
+    expect(model?.team2Button.label).toBe(model?.team2Button.label.toUpperCase())
+  })
 })
