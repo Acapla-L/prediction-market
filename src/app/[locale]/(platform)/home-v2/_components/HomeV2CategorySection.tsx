@@ -1,10 +1,16 @@
-import type { CategorySection } from '@/app/[locale]/(platform)/home-v2/_data/fetchCategoryEvents'
+import type { Event } from '@/types'
 import { ChevronRightIcon } from 'lucide-react'
 import EventsStaticGrid from '@/app/[locale]/(platform)/(home)/_components/EventsStaticGrid'
 import AppLink from '@/components/AppLink'
 
 interface HomeV2CategorySectionProps {
-  section: CategorySection
+  /**
+   * Anchor id for the wrapper `<section>`. Step 4 nav-tabs scroll to these
+   * via `/home-v2#basketball` etc.
+   */
+  id: string
+  events: Event[]
+  href: string
   currentTimestamp: number
   title: string
   viewAllLabel: string
@@ -13,26 +19,26 @@ interface HomeV2CategorySectionProps {
 const EMPTY_PRICE_OVERRIDES: Record<string, number> = {}
 
 export default function HomeV2CategorySection({
-  section,
+  id,
+  events,
+  href,
   currentTimestamp,
   title,
   viewAllLabel,
 }: HomeV2CategorySectionProps) {
-  const { config, events } = section
-
   if (events.length === 0) {
     return null
   }
 
   return (
-    <section className="flex flex-col gap-3">
+    <section id={id} className="flex scroll-mt-24 flex-col gap-3">
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-lg font-semibold text-foreground">
           {title}
         </h2>
         <AppLink
           intentPrefetch
-          href={config.href}
+          href={href}
           className="
             group inline-flex items-center gap-1 text-xs font-medium text-primary transition-colors
             hover:text-primary/80

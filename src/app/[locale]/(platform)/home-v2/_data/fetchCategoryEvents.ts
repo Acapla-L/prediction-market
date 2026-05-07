@@ -1,4 +1,4 @@
-import type { HomeV2CategoryConfig } from '@/app/[locale]/(platform)/home-v2/_config/categories'
+import type { HomeV2TagSectionConfig } from '@/app/[locale]/(platform)/home-v2/_config/categories'
 import type { SupportedLocale } from '@/i18n/locales'
 import type { Event } from '@/types'
 import { EventRepository } from '@/lib/db/queries/event'
@@ -7,12 +7,17 @@ import { filterHomeEvents } from '@/lib/home-events'
 const CATEGORY_GRID_SIZE = 4
 
 export interface CategorySection {
-  config: HomeV2CategoryConfig
+  config: HomeV2TagSectionConfig
   events: Event[]
 }
 
-async function fetchCategory(
-  config: HomeV2CategoryConfig,
+/**
+ * Fetch events for one tag-driven section (Sports overview only as of Step 3).
+ * The page orchestrator dispatches per-section based on `kind` and routes
+ * `kind: 'league'` configs to `fetchLeagueEvents` instead.
+ */
+export async function fetchTagCategoryEvents(
+  config: HomeV2TagSectionConfig,
   locale: SupportedLocale,
 ): Promise<CategorySection> {
   const { data, error } = await EventRepository.listEvents({
@@ -39,11 +44,4 @@ async function fetchCategory(
     config,
     events: filtered.slice(0, CATEGORY_GRID_SIZE),
   }
-}
-
-export async function fetchCategoryEvents(
-  categories: readonly HomeV2CategoryConfig[],
-  locale: SupportedLocale,
-): Promise<CategorySection[]> {
-  return Promise.all(categories.map(c => fetchCategory(c, locale)))
 }

@@ -1,5 +1,5 @@
 import type { QueryResult } from '@/types'
-import { and, eq, gte, lte, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, lte, sql } from 'drizzle-orm'
 import { discovered_polymarket_games } from '@/lib/db/schema'
 import { runQuery } from '@/lib/db/utils/run-query'
 import { db } from '@/lib/drizzle'
@@ -119,6 +119,40 @@ export const DiscoveredGamesRepository = {
           eq(discovered_polymarket_games.league, league),
           eq(discovered_polymarket_games.is_archived, false),
         ))
+
+      return {
+        data: entries.map(rowToReturn),
+        error: null,
+      }
+    })
+  },
+
+  /**
+   * List upcoming non-archived, non-closed, active games for a league,
+   * ordered by `game_start_time` ASC and capped at `limit`. The window
+   * starts at `now - 1 hour` so an in-progress game (started up to an hour
+   * ago) still surfaces on the homepage shelf. Used by the home-v2
+   * `fetchLeagueEvents` data layer.
+   */
+  async listUpcomingByLeague(
+    league: string,
+    limit: number,
+    now: Date,
+  ): Promise<QueryResult<DiscoveredGameRow[]>> {
+    return runQuery(async () => {
+      const windowStart = new Date(now.getTime() - 60 * 60 * 1000)
+      const entries = await db
+        .select()
+        .from(discovered_polymarket_games)
+        .where(and(
+          eq(discovered_polymarket_games.league, league),
+          eq(discovered_polymarket_games.is_active, true),
+          eq(discovered_polymarket_games.is_archived, false),
+          eq(discovered_polymarket_games.is_closed, false),
+          gte(discovered_polymarket_games.game_start_time, windowStart),
+        ))
+        .orderBy(asc(discovered_polymarket_games.game_start_time))
+        .limit(limit)
 
       return {
         data: entries.map(rowToReturn),

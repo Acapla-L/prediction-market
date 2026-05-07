@@ -11,6 +11,18 @@ import { resolvePlatformNavigationSelection } from '@/lib/platform-navigation'
 import { buildDynamicHomeCategorySlugSet, isPlatformReservedRootSlug } from '@/lib/platform-routing'
 import { cn } from '@/lib/utils'
 
+// League slugs link to home-v2 anchor sections (per Path Z home-v2 cutover).
+// Hash-fragment URLs are not in Next.js's typed Route union, so we cast via
+// `unknown` at the constant site (single point) instead of widening the
+// function signature. URLs flip to `/sports/{league}/games` when Stream 2 ships.
+const LEAGUE_HREF_MAP: Readonly<Record<string, Route>> = {
+  mlb: '/home-v2#baseball' as unknown as Route,
+  nba: '/home-v2#basketball' as unknown as Route,
+  nhl: '/home-v2#hockey' as unknown as Route,
+  nfl: '/home-v2#football' as unknown as Route,
+  ucl: '/home-v2#soccer' as unknown as Route,
+}
+
 function getMainTagHref(slug: string, dynamicHomeCategorySlugSet: ReadonlySet<string>): Route {
   if (slug === 'trending') {
     return '/' as Route
@@ -22,6 +34,10 @@ function getMainTagHref(slug: string, dynamicHomeCategorySlugSet: ReadonlySet<st
 
   if (slug === 'esports') {
     return '/esports/live' as Route
+  }
+
+  if (slug in LEAGUE_HREF_MAP) {
+    return LEAGUE_HREF_MAP[slug]
   }
 
   if (slug === 'new' || isPlatformReservedRootSlug(slug) || dynamicHomeCategorySlugSet.has(slug)) {

@@ -1,5 +1,6 @@
 'use client'
 
+import type { FeaturedFuturesLeading } from '@/app/[locale]/(platform)/home-v2/_data/fetchFeaturedFuturesData'
 import type { HeroChartEntry } from '@/app/[locale]/(platform)/home-v2/_data/fetchHeroChartData'
 import type { Event } from '@/types'
 import type { PredictionChartCursorSnapshot, SeriesConfig } from '@/types/PredictionChartTypes'
@@ -31,6 +32,12 @@ interface HomeV2HeroSlideProps {
   event: Event
   isActive: boolean
   chartEntry: HeroChartEntry | null
+  /**
+   * When present, render a leading-outcome pill (e.g. "Spain · 17%") plus a
+   * "+N more markets" badge in place of the binary Yes/No probability pills.
+   * Used by the Phase A v2 futures hero (multi-market neg-risk events).
+   */
+  leading?: FeaturedFuturesLeading | null
 }
 
 function pickOutcomeProbability(event: Event, outcomeIndex: 0 | 1): number {
@@ -81,7 +88,7 @@ function formatChartPrice(value: number): string {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-export default function HomeV2HeroSlide({ event, isActive, chartEntry }: HomeV2HeroSlideProps) {
+export default function HomeV2HeroSlide({ event, isActive, chartEntry, leading }: HomeV2HeroSlideProps) {
   const [containerRef, containerWidth] = useContainerWidth()
   const isMobile = useIsMobile()
   const chartHeight = isMobile ? 140 : 180
@@ -191,26 +198,60 @@ export default function HomeV2HeroSlide({ event, isActive, chartEntry }: HomeV2H
       </div>
 
       <div className="flex flex-wrap items-center gap-2 px-1">
-        <span className="
-          inline-flex items-center gap-1.5 rounded-full bg-(--yes)/10 px-3 py-1 text-xs font-semibold text-(--yes)
-        "
-        >
-          Yes
-          <span className="tabular-nums">
-            {yesProbability}
-            %
-          </span>
-        </span>
-        <span className="
-          inline-flex items-center gap-1.5 rounded-full bg-(--no)/10 px-3 py-1 text-xs font-semibold text-(--no)
-        "
-        >
-          No
-          <span className="tabular-nums">
-            {noProbability}
-            %
-          </span>
-        </span>
+        {leading
+          ? (
+              <>
+                <span className="
+                  inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold
+                  text-primary
+                "
+                >
+                  <span className="max-w-48 truncate">{leading.label}</span>
+                  <span aria-hidden>·</span>
+                  <span className="tabular-nums">
+                    {leading.percent}
+                    %
+                  </span>
+                </span>
+                {leading.otherMarketsCount > 0 && (
+                  <span className="
+                    inline-flex items-center rounded-full border border-border bg-card px-3 py-1 text-xs font-medium
+                    text-muted-foreground
+                  "
+                  >
+                    +
+                    {leading.otherMarketsCount}
+                    {' '}
+                    more
+                  </span>
+                )}
+              </>
+            )
+          : (
+              <>
+                <span className="
+                  inline-flex items-center gap-1.5 rounded-full bg-(--yes)/10 px-3 py-1 text-xs font-semibold
+                  text-(--yes)
+                "
+                >
+                  Yes
+                  <span className="tabular-nums">
+                    {yesProbability}
+                    %
+                  </span>
+                </span>
+                <span className="
+                  inline-flex items-center gap-1.5 rounded-full bg-(--no)/10 px-3 py-1 text-xs font-semibold text-(--no)
+                "
+                >
+                  No
+                  <span className="tabular-nums">
+                    {noProbability}
+                    %
+                  </span>
+                </span>
+              </>
+            )}
       </div>
 
       <div className="flex items-center gap-2 px-1 pb-1 text-xs text-muted-foreground">

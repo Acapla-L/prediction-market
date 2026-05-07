@@ -251,8 +251,20 @@ function buildMarket(
  * `canRenderSportsGamesCard`: `sports_section: 'games'`, `sports_sport_slug`
  * (so `resolveEventPagePath` produces `/sports/{sport}/{slug}`), and
  * `sports_event_slug = row.slug`.
+ *
+ * **Public API surface (Step 3, sports-forward home-v2).** Originally a
+ * file-private helper of `buildSportsGamesCardFromGameRow`. Promoted to an
+ * exported entry point so the home-v2 `fetchLeagueEvents` data layer can
+ * project per-game sidecar rows directly into `Event`s for the homepage
+ * grid (which expects `Event[]`, not `SportsGamesCard[]`).
+ *
+ * Consumers:
+ *   - `buildSportsGamesCardFromGameRow` (this file) — internal, sports template
+ *   - `home-v2/_data/fetchLeagueEvents.ts` — homepage league shelves
+ *
+ * Drift-locked by `tests/unit/synthesizeSportsCard.test.ts`.
  */
-function buildSyntheticEvent(
+export function buildSyntheticEvent(
   row: DiscoveredGameRow,
   payload: z.infer<typeof DiscoveredGameMarketsPayloadSchema>,
   homeTeamForEvent: SportsGamesTeam,

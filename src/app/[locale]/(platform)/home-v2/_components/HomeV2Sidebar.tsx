@@ -1,24 +1,19 @@
-import type { Event } from '@/types'
+import type { SidebarData } from '@/app/[locale]/(platform)/home-v2/_data/fetchSidebarData'
 import { getExtracted } from 'next-intl/server'
-import {
-  SidebarEventListCard,
-  SidebarStaticListCard,
-} from '@/app/[locale]/(platform)/home-v2/_components/SidebarListCard'
+import SidebarGameListCard from '@/app/[locale]/(platform)/home-v2/_components/SidebarGameListCard'
+import { SidebarStaticListCard } from '@/app/[locale]/(platform)/home-v2/_components/SidebarListCard'
 import SidebarMarketplaceCard from '@/app/[locale]/(platform)/home-v2/_components/SidebarMarketplaceCard'
 
 interface HomeV2SidebarProps {
-  trending: Event[]
-  fresh: Event[]
+  data: SidebarData
 }
 
-export default async function HomeV2Sidebar({ trending, fresh }: HomeV2SidebarProps) {
+export default async function HomeV2Sidebar({ data }: HomeV2SidebarProps) {
   const t = await getExtracted()
 
-  // TODO: replace # placeholders once futures landing pages or series slugs are confirmed
   const futuresRows = [
-    { label: t('NBA Championship'), href: '#' },
-    { label: t('Premier League Winner'), href: '#' },
-    { label: t('2026 NHL Stanley Cup Champion'), href: '#' },
+    ...data.futures.map(future => ({ label: future.title, href: future.href })),
+    { label: t('See all'), href: data.futuresShowAllHref },
   ]
 
   return (
@@ -27,9 +22,9 @@ export default async function HomeV2Sidebar({ trending, fresh }: HomeV2SidebarPr
       <div className="hidden lg:block">
         <SidebarMarketplaceCard />
       </div>
-      <SidebarEventListCard title={t('Trending')} events={trending} />
+      <SidebarGameListCard title={t('Trending')} games={data.trendingGames} />
       <SidebarStaticListCard title={t('Sports Futures')} rows={futuresRows} />
-      <SidebarEventListCard title={t('New Markets')} events={fresh} />
+      <SidebarGameListCard title={t('New Markets')} games={data.newGames} />
     </aside>
   )
 }
