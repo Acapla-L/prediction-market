@@ -64,12 +64,45 @@ function gameRowFromEntry(entry: typeof discovered_polymarket_games.$inferSelect
 }
 
 /**
+ * Shortens a Polymarket outcome label to just the team nickname, stripping
+ * the city/location prefix that Polymarket sometimes (but not always) emits.
+ *
+ * Polymarket team-name conventions are inconsistent across leagues: MLB/NBA
+ * tend to use `City Team` (e.g. `New York Yankees`, `San Antonio Spurs`),
+ * while NHL labels are sometimes just the nickname (`Sabres`). We normalize
+ * to the trailing nickname so the sidebar's secondary text is consistent.
+ *
+ * Rule:
+ *   1. 1 word → return as-is (already short, e.g. `Sabres`, `Athletics`).
+ *   2. 2+ words ending in `Sox` or `Jays` → return last 2 words
+ *      (`Boston Red Sox` → `Red Sox`, `Toronto Blue Jays` → `Blue Jays`).
+ *   3. Otherwise → return last word (`New York Yankees` → `Yankees`,
+ *      `Oklahoma City Thunder` → `Thunder`).
+ */
+export function shortenTeamName(fullName: string): string {
+  const trimmed = fullName.trim()
+  if (trimmed.length === 0) {
+    return trimmed
+  }
+  const words = trimmed.split(/\s+/)
+  if (words.length === 1) {
+    return words[0]!
+  }
+  const last = words[words.length - 1]!
+  if (last === 'Sox' || last === 'Jays') {
+    return `${words[words.length - 2]!} ${last}`
+  }
+  return last
+}
+
+/**
  * Derives the leading team and percentage for a sidebar row from the game's
  * moneyline market. Polymarket per-game moneylines have 2 outcomes whose
  * labels ARE the team names (e.g. `["New York Yankees", "Boston Red Sox"]`)
  * and whose prices express implied win probability. The higher-priced
  * outcome's label + percent is the "leading team" we want to surface in
- * place of the raw start time.
+ * place of the raw start time. The label is shortened via `shortenTeamName`
+ * to strip inconsistent location prefixes from Polymarket source data.
  *
  * Returns `null` if the payload can't be parsed, the moneyline market is
  * absent, prices/outcomes are missing, or both prices parse to NaN — the
@@ -113,7 +146,7 @@ function deriveLeadingTeam(
   }
 
   return {
-    label: winningLabel,
+    label: shortenTeamName(winningLabel),
     percent: Math.round(winningPrice * 100),
   }
 }

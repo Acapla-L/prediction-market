@@ -24,8 +24,8 @@ function resolveRow(game: SidebarGameWithLeading): ResolvedGameRow {
   return {
     key: game.row.slug,
     href,
-    awayLabel: (game.row.awayTeamLabel ?? '').toUpperCase(),
-    homeLabel: (game.row.homeTeamLabel ?? '').toUpperCase(),
+    awayLabel: game.row.awayTeamLabel ?? '',
+    homeLabel: game.row.homeTeamLabel ?? '',
     leadingLabel: game.leading?.label ?? null,
     leadingPercent: game.leading?.percent ?? null,
   }
@@ -80,13 +80,14 @@ export default function SidebarGameListCard({
             </span>
             {hasLeading && (
               <span className="
-                line-clamp-1 max-w-[45%] shrink-0 text-2xs tracking-wide text-muted-foreground tabular-nums
+                line-clamp-1 flex max-w-[45%] shrink-0 items-baseline gap-1 text-2xs tracking-wide text-muted-foreground tabular-nums
               "
               >
-                {row.leadingLabel}
-                {' '}
-                {row.leadingPercent}
-                %
+                <span>{row.leadingLabel}</span>
+                <span className="text-primary">
+                  {row.leadingPercent}
+                  %
+                </span>
               </span>
             )}
           </>

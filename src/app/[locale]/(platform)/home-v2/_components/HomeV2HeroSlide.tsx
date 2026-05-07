@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import HomeV2HeroChartSkeleton from '@/app/[locale]/(platform)/home-v2/_components/HomeV2HeroChartSkeleton'
 import AppLink from '@/components/AppLink'
+import EventIconImage from '@/components/EventIconImage'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { resolveEventPagePath } from '@/lib/events-routing'
 import { formatVolume } from '@/lib/formatters'
@@ -85,16 +86,31 @@ export default function HomeV2HeroSlide({ event, isActive, chartConfig }: HomeV2
   return (
     <article
       aria-roledescription="slide"
-      className="flex min-w-0 flex-[0_0_100%] flex-col gap-3 px-1"
+      className="flex min-w-0 flex-[0_0_100%] flex-col gap-2 px-1"
     >
-      {/* Top row: title left, "View market →" right. No category pill. */}
+      {/* Top row: league logo + title left, "View market →" right. No category pill. */}
       <div className="flex items-start justify-between gap-3 px-1">
         <AppLink
           intentPrefetch
           href={href}
-          className="group min-w-0 flex-1 transition-colors hover:text-foreground"
+          className="group flex min-w-0 flex-1 items-center gap-2.5 transition-colors hover:text-foreground sm:gap-3"
         >
-          <h2 className="line-clamp-2 text-base/snug font-semibold text-foreground sm:text-lg/snug lg:text-xl/snug">
+          {event.icon_url
+            ? (
+                <div
+                  aria-hidden
+                  className="flex size-9 shrink-0 items-center justify-center self-start overflow-hidden rounded-sm sm:size-10"
+                >
+                  <EventIconImage
+                    src={event.icon_url}
+                    alt=""
+                    sizes="40px"
+                    containerClassName="size-full rounded-sm"
+                  />
+                </div>
+              )
+            : null}
+          <h2 className="line-clamp-2 text-lg/tight font-bold text-foreground sm:text-xl/tight lg:text-2xl/tight">
             {event.title}
           </h2>
         </AppLink>

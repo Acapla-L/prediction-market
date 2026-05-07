@@ -36,6 +36,10 @@ function getMainTagHref(slug: string, dynamicHomeCategorySlugSet: ReadonlySet<st
     return '/esports/live' as Route
   }
 
+  if (slug === 'new') {
+    return '/' as Route
+  }
+
   if (slug in LEAGUE_HREF_MAP) {
     return LEAGUE_HREF_MAP[slug]
   }
