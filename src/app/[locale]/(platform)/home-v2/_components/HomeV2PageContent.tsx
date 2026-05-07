@@ -4,7 +4,7 @@ import type { HomeV2SectionConfig } from '@/app/[locale]/(platform)/home-v2/_con
 import type { CategorySection } from '@/app/[locale]/(platform)/home-v2/_data/fetchCategoryEvents'
 import type { LeagueSection } from '@/app/[locale]/(platform)/home-v2/_data/fetchLeagueEvents'
 import type { SupportedLocale } from '@/i18n/locales'
-import { getExtracted } from 'next-intl/server'
+import { getExtracted, setRequestLocale } from 'next-intl/server'
 import { cacheTag } from 'next/cache'
 import HomeV2CategorySection from '@/app/[locale]/(platform)/home-v2/_components/HomeV2CategorySection'
 import HomeV2Hero from '@/app/[locale]/(platform)/home-v2/_components/HomeV2Hero'
@@ -40,6 +40,12 @@ async function resolveSection(
 }
 
 export default async function HomeV2PageContent({ locale }: HomeV2PageContentProps) {
+  // setRequestLocale must be called inside the 'use cache' scope (not just at
+  // the page-wrapper level) so that getExtracted() reads the primed locale
+  // instead of falling back to headers() — which is forbidden inside cache.
+  // Page wrappers also call setRequestLocale for next-intl's static-rendering
+  // contract; calling it twice with the same value is a no-op.
+  setRequestLocale(locale)
   cacheTag(cacheTags.eventsList)
 
   const t = await getExtracted()
