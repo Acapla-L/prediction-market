@@ -513,12 +513,26 @@ export async function loadDiscoveredGameSportsCard(slug: string): Promise<Sports
 /**
  * Stream 2 (Phase B v2 v3) — batch projection helper for the sports list
  * route. Mirrors `loadDiscoveredGameSportsCard` (single-slug) but loads every
- * tradeable row for a league in two queries (rows + teams) and projects each
- * row using the shared pure helper `buildSportsGamesCardFromGameRow`.
+ * upcoming tradeable row for a league in two queries (rows + teams) and
+ * projects each row using the shared pure helper
+ * `buildSportsGamesCardFromGameRow`.
  *
- * Filter (Allan policy 2026-05-07): `is_active = true AND is_closed = false`.
- * The repository's `listActiveByLeague` already excludes archived rows; this
- * helper applies the tighter "currently tradeable" filter on top.
+ * Filter (post-Bug-B fix 2026-05-08): delegates to
+ * `DiscoveredGamesRepository.listUpcomingByLeague` so list-page filtering
+ * matches the homepage (`fetchLeagueEvents.ts`) — same SQL `WHERE` clause,
+ * single source of truth. Behavior:
+ *   - is_active = true
+ *   - is_archived = false
+ *   - is_closed = false
+ *   - game_start_time >= now - 1h  (homepage's time-window guard)
+ *   - ORDER BY game_start_time ASC LIMIT 200
+ *
+ * The earlier implementation used `listActiveByLeague` + a post-`.filter`
+ * for the lifecycle flags but had no time-window guard — list page surfaced
+ * games whose start_time was hours-to-days in the past whenever Polymarket
+ * sync hadn't yet flipped `is_closed` (typical lag). Switching to
+ * `listUpcomingByLeague` fixes the divergence and removes the now-redundant
+ * post-filter.
  *
  * Wrapped in `'use cache'` with two cache tags:
  *   - `cacheTags.discoveredGamesList(league)` — Stream 2 list-route tag
@@ -526,9 +540,10 @@ export async function loadDiscoveredGameSportsCard(slug: string): Promise<Sports
  *   - `cacheTags.teamsCache(league)` — busted by the teams sync.
  *
  * Performance: one Postgres round-trip for rows + one for teams + an O(n)
- * map build, vs the per-slug helper's 1 + 2N round-trips. Acceptable at the
- * production volumes observed (~30 rows/league/day).
+ * map build, vs the per-slug helper's 1 + 2N round-trips.
  */
+const LIST_PAGE_LIMIT = 200
+
 export async function loadDiscoveredGameSportsCardsByLeague(
   leagueSlug: string,
 ): Promise<SportsGamesCard[]> {
@@ -542,17 +557,11 @@ export async function loadDiscoveredGameSportsCardsByLeague(
     return []
   }
 
-  const [{ data: rows }, { data: teams }] = await Promise.all([
-    DiscoveredGamesRepository.listActiveByLeague(leagueSlug),
+  const [{ data: tradeable }, { data: teams }] = await Promise.all([
+    DiscoveredGamesRepository.listUpcomingByLeague(leagueSlug, LIST_PAGE_LIMIT, new Date()),
     TeamsCacheRepository.listByLeague(leagueSlug),
   ])
-  if (!rows || rows.length === 0) {
-    return []
-  }
-
-  // Allan policy: list page surfaces only currently-tradeable games.
-  const tradeable = rows.filter(row => row.isActive && !row.isClosed)
-  if (tradeable.length === 0) {
+  if (!tradeable || tradeable.length === 0) {
     return []
   }
 

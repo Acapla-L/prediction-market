@@ -4016,9 +4016,21 @@ export default function SportsGamesCenter({
     return String(initialWeek)
   }, [initialWeek, isFeedPage])
 
+  // Stream 2 (Phase B v2 v3): when the visible card list mixes week-numbered
+  // Kuest cards with weekless (week=null) discovery cards, default the week
+  // selector to 'all'. Pure-Kuest weekly leagues (e.g., NFL) — where every
+  // card has a finite week — keep their existing latest-week default.
+  // Without this guard, a single week-numbered Kuest card on a discovery-
+  // populated league page would auto-select that week and filter out every
+  // discovery card whose week is null (see weekFilteredCards below).
+  const hasWeeklessCards = useMemo(
+    () => visibleCards.some(card => !Number.isFinite(card.week)),
+    [visibleCards],
+  )
+
   const latestWeekOption = useMemo(
-    () => (weekOptions.length > 0 ? String(weekOptions.at(-1)) : 'all'),
-    [weekOptions],
+    () => (weekOptions.length > 0 && !hasWeeklessCards ? String(weekOptions.at(-1)) : 'all'),
+    [weekOptions, hasWeeklessCards],
   )
 
   const [selectedWeek, setSelectedWeek] = useState<string>(
@@ -4075,7 +4087,12 @@ export default function SportsGamesCenter({
     }
 
     const week = Number(selectedWeek)
-    return visibleCards.filter(card => card.week === week)
+    // Stream 2 (Phase B v2 v3): include weekless (week=null) discovery cards
+    // alongside the requested numeric-week Kuest cards. Without this, a user
+    // who manually selects "Week 3" on a mixed list would lose all discovery
+    // games. Pure-Kuest pages (every card has a finite week) are unaffected
+    // because the second predicate evaluates false for all such cards.
+    return visibleCards.filter(card => card.week === week || !Number.isFinite(card.week))
   }, [isFeedPage, pageCards, selectedWeek, visibleCards])
 
   useEffect(() => {

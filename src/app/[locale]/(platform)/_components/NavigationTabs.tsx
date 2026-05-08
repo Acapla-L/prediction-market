@@ -16,8 +16,15 @@ import { cn } from '@/lib/utils'
 // NFL not in registry; UCL deferred to Phase B v2 v3 soccer rollout). Hash-
 // fragment URLs are not in Next.js's typed Route union, so we cast via
 // `unknown` for the home-v2 entries.
+//
+// MLB tab points at `/sports/baseball/games` (sport-route alias) rather than
+// `/sports/mlb/games` (registry slug) per Allan's 2026-05-08 directive — both
+// resolve to the same MLB content but `baseball` is the user-facing
+// canonical path matching the home-v2 sport-section anchors and "View all"
+// links. Bug B fix (listUpcomingByLeague time-window guard) makes both URLs
+// safe to surface.
 const LEAGUE_HREF_MAP: Readonly<Record<string, Route>> = {
-  mlb: '/sports/mlb/games' as Route,
+  mlb: '/sports/baseball/games' as Route,
   nba: '/sports/nba/games' as Route,
   nhl: '/sports/nhl/games' as Route,
   nfl: '/home-v2#football' as unknown as Route,
