@@ -1053,7 +1053,13 @@ function isCardLiveNow(card: SportsGamesCard, nowMs: number) {
     ? startMs <= nowMs && nowMs <= liveFallbackEndMs
     : false
 
-  if (card.event.sports_live === true) {
+  // sports_live can be stuck `true` upstream after the Kuest sport-feed sync
+  // misses an end-of-game flip (observed for resolved-but-stale rows like
+  // `mlb-atl-laa-2026-04-07`). Trust it only when at least one positive time
+  // signal corroborates — either inside the start/end window OR inside the
+  // live fallback window. Without this guard, expired games keep the LIVE
+  // badge indefinitely until upstream sync flips the flag.
+  if (card.event.sports_live === true && (isInTimeWindow || isWithinFallbackWindow)) {
     return true
   }
 
