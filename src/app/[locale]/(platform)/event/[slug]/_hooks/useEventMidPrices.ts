@@ -23,6 +23,72 @@ export type MarketQuotesByMarket = Record<string, MarketQuote>
 const PRICE_REFRESH_INTERVAL_MS = 60_000
 const CLOB_BASE_URL = process.env.CLOB_URL
 
+// Stream 2 (Phase B v2 v3) Bug C fix (2026-05-08): Kuest CLOB caps batched
+// POSTs at 500 items per request — sending more returns HTTP 400. Sports
+// list pages routinely exceed the cap (~50 games × multi-market × 2
+// outcomes ~= 500+ tokens). Chunk at 400 (defensive margin) and Promise.all
+// the resulting batches. Mirrors the chunking pattern in useEventLastTrades.
+const CLOB_BATCH_LIMIT = 400
+
+function chunkTokenObjects(tokenIds: string[]): { token_id: string }[][] {
+  const chunks: { token_id: string }[][] = []
+  for (let i = 0; i < tokenIds.length; i += CLOB_BATCH_LIMIT) {
+    chunks.push(tokenIds.slice(i, i + CLOB_BATCH_LIMIT).map(token_id => ({ token_id })))
+  }
+  return chunks
+}
+
+async function fetchPricesChunk(chunk: { token_id: string }[]): Promise<PriceApiResponse> {
+  // Per-chunk graceful fallback. A single failed chunk degrades to empty
+  // (callers fall back to bid/ask=null) instead of unmounting the list.
+  try {
+    const response = await fetch(`${CLOB_BASE_URL}/prices`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(chunk),
+    })
+    if (!response.ok) {
+      console.warn(`prices chunk failed (${response.status} ${response.statusText}); chunk size=${chunk.length}`)
+      return {}
+    }
+    return await response.json() as PriceApiResponse
+  }
+  catch (err) {
+    console.warn('prices chunk threw', err)
+    return {}
+  }
+}
+
+async function fetchMidpointsChunk(chunk: { token_id: string }[]): Promise<MidpointsApiResponse> {
+  try {
+    const response = await fetch(`${CLOB_BASE_URL}/midpoints`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(chunk),
+    })
+    if (!response.ok) {
+      // Midpoints endpoint legitimately 404s for tokens with no liquidity
+      // (Phase B v2 ports the upstream batched-midpoints contract from
+      // Kuest PR #957). Suppress noisy warnings for 404; warn on others.
+      if (response.status !== 404) {
+        console.warn(`midpoints chunk failed (${response.status} ${response.statusText}); chunk size=${chunk.length}`)
+      }
+      return {}
+    }
+    return await response.json() as MidpointsApiResponse
+  }
+  catch (err) {
+    console.warn('midpoints chunk threw', err)
+    return {}
+  }
+}
+
 // Synthetic condition_ids minted by the Polymarket discovery layer
 // (Phase A v2 futures: `polymarket-discovered:`; Phase B per-game:
 // `polymarket-discovered-game:`). These are NOT valid Kuest CLOB tokens —
@@ -53,20 +119,6 @@ function resolveQuote(
   return { bid, ask, mid }
 }
 
-async function parseMidpointsResponse(response: Response | null): Promise<MidpointsApiResponse> {
-  if (!response?.ok) {
-    return {}
-  }
-
-  try {
-    const payload = await response.json() as unknown
-    return payload as MidpointsApiResponse
-  }
-  catch {
-    return {}
-  }
-}
-
 export async function fetchQuotesByMarket(targets: MarketTokenTarget[]): Promise<MarketQuotesByMarket> {
   // Skip synthetic discovery targets — their condition_ids are namespaced
   // placeholders (no Kuest CLOB liquidity exists for them).
@@ -84,30 +136,18 @@ export async function fetchQuotesByMarket(targets: MarketTokenTarget[]): Promise
     throw new Error('CLOB URL is not configured.')
   }
 
-  const requestInit: RequestInit = {
-    method: 'POST',
-    headers: {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(uniqueTokenIds.map(tokenId => ({ token_id: tokenId }))),
-  }
-
-  const [pricesResponse, midpointsResponse] = await Promise.all([
-    fetch(`${CLOB_BASE_URL}/prices`, requestInit),
-    fetch(`${CLOB_BASE_URL}/midpoints`, requestInit).catch(() => null),
+  // Stream 2 (Phase B v2 v3) Bug C fix: chunk into ≤ CLOB_BATCH_LIMIT batches
+  // for both /prices and /midpoints; merge results. Per-chunk failures
+  // degrade to empty result (caller falls back to bid/ask=null).
+  const chunks = chunkTokenObjects(uniqueTokenIds)
+  const [priceResults, midpointResults] = await Promise.all([
+    Promise.all(chunks.map(chunk => fetchPricesChunk(chunk))),
+    Promise.all(chunks.map(chunk => fetchMidpointsChunk(chunk))),
   ])
 
-  if (!pricesResponse.ok) {
-    const message = `Failed to fetch market quotes (${pricesResponse.status} ${pricesResponse.statusText}).`
-    console.error(message)
-    throw new Error(message)
-  }
-
-  const [data, midpointsData] = await Promise.all([
-    pricesResponse.json() as Promise<PriceApiResponse>,
-    parseMidpointsResponse(midpointsResponse),
-  ])
+  // Merge per-chunk maps into single lookups.
+  const data: PriceApiResponse = Object.assign({}, ...priceResults)
+  const midpointsData: MidpointsApiResponse = Object.assign({}, ...midpointResults)
 
   const quotesByToken = new Map<string, MarketQuote>()
 

@@ -4,7 +4,7 @@ import { isCronAuthorized } from '@/lib/auth-cron'
 import { cacheTags } from '@/lib/cache-tags'
 import { DiscoveredGamesRepository } from '@/lib/db/queries/discovered-games'
 import { fetchPolymarketGammaEventsBySeries } from '@/lib/polymarket/client'
-import { DISCOVERED_GAMES_LEAGUES } from '@/lib/polymarket/games-leagues'
+import { DISCOVERED_GAMES_LEAGUES, getLeagueBySlug } from '@/lib/polymarket/games-leagues'
 import {
   normalizeGamesDiscoveryPayload,
   serializeGamesDiscoveryPayload,
@@ -197,8 +197,18 @@ async function handleGamesDiscoverySync(request: Request): Promise<NextResponse<
   // random-game sidebar list. Outside the per-row loop so we only fire once
   // per league (and once total for the sidebar) regardless of how many
   // games synced.
+  //
+  // Stream 2 (Phase B v2 v3): also bust the edge HTML cache for the list
+  // route so /sports/{sportRouteSlug}/games (and the canonical-slug variant)
+  // serves fresh data within seconds of a successful sync, not within the
+  // default revalidation window.
   for (const leagueSlug of successfulLeagues) {
     revalidateTag(cacheTags.discoveredGamesList(leagueSlug), 'max')
+    const league = getLeagueBySlug(leagueSlug)
+    if (league) {
+      revalidatePath(`/en/sports/${league.sportRouteSlug}/games`)
+      revalidatePath(`/en/sports/${league.slug}/games`)
+    }
   }
   if (successfulSlugs.length > 0) {
     revalidateTag(cacheTags.discoveredGamesSidebar, 'max')

@@ -178,6 +178,24 @@ describe('/api/sync/polymarket-games-discovery', () => {
     expect(mockedRevalidatePath).toHaveBeenCalledWith('/event/mlb-cin-chc-2026-05-05')
     // Plus the global eventsList tag at the end
     expect(mockedRevalidateTag).toHaveBeenCalledWith('events:list', 'max')
+
+    // Stream 2 (Phase B v2 v3): per-league list-route cache bust must fire
+    // once for MLB (the only league with successful upserts in this test).
+    expect(mockedRevalidateTag).toHaveBeenCalledWith(
+      'polymarket-discovered-games:list:mlb',
+      'max',
+    )
+    expect(mockedRevalidatePath).toHaveBeenCalledWith('/en/sports/baseball/games')
+    expect(mockedRevalidatePath).toHaveBeenCalledWith('/en/sports/mlb/games')
+    // NBA/NHL did not have any successful upserts → must NOT fire their tags.
+    expect(mockedRevalidateTag).not.toHaveBeenCalledWith(
+      'polymarket-discovered-games:list:nba',
+      'max',
+    )
+    expect(mockedRevalidateTag).not.toHaveBeenCalledWith(
+      'polymarket-discovered-games:list:nhl',
+      'max',
+    )
   })
 
   it('handles fetchPolymarketGammaEventsBySeries returning null (transport failure)', async () => {
@@ -226,9 +244,14 @@ describe('/api/sync/polymarket-games-discovery', () => {
     expect(texResult?.status).toBe('upsert_error')
     expect(cinResult?.status).toBe('ok')
     expect(mockedRepo.markFailure).toHaveBeenCalledTimes(1)
-    // Only the successful slug gets revalidated
-    expect(mockedRevalidatePath).toHaveBeenCalledTimes(1)
+    // Only the successful slug gets per-event revalidation. Stream 2
+    // (Phase B v2 v3) ALSO adds two per-league list-route path busts when
+    // the league has any successful upsert — total: 1 per-event + 2
+    // per-league = 3 revalidatePath calls.
+    expect(mockedRevalidatePath).toHaveBeenCalledTimes(3)
     expect(mockedRevalidatePath).toHaveBeenCalledWith('/event/mlb-cin-chc-2026-05-05')
+    expect(mockedRevalidatePath).toHaveBeenCalledWith('/en/sports/baseball/games')
+    expect(mockedRevalidatePath).toHaveBeenCalledWith('/en/sports/mlb/games')
   })
 
   it('includes archive count in response', async () => {

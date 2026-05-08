@@ -11,4 +11,10 @@ describe('cacheTags', () => {
     expect(cacheTags.event('e1:u1')).toBe('event:e1:u1')
     expect(cacheTags.settings).toBe('settings')
   })
+
+  it('builds discoveredGamesList per-league tag (Stream 2 / Phase B v2 v3)', () => {
+    expect(cacheTags.discoveredGamesList('mlb')).toBe('polymarket-discovered-games:list:mlb')
+    expect(cacheTags.discoveredGamesList('nba')).toBe('polymarket-discovered-games:list:nba')
+    expect(cacheTags.discoveredGamesList('nhl')).toBe('polymarket-discovered-games:list:nhl')
+  })
 })

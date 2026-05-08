@@ -119,6 +119,7 @@ export const DiscoveredGamesRepository = {
           eq(discovered_polymarket_games.league, league),
           eq(discovered_polymarket_games.is_archived, false),
         ))
+        .orderBy(asc(discovered_polymarket_games.game_start_time))
 
       return {
         data: entries.map(rowToReturn),
