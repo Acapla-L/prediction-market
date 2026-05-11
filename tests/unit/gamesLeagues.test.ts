@@ -26,6 +26,50 @@ describe('phase B per-game leagues registry', () => {
     }
   })
 
+  it('preserves the per-league placeholderAbbreviations Sets (source-of-truth)', () => {
+    const mlb = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'mlb')!
+    const nba = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'nba')!
+    const nhl = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'nhl')!
+
+    expect(mlb.placeholderAbbreviations).toBeDefined()
+    expect([...mlb.placeholderAbbreviations!].sort()).toEqual(['al', 'nl'])
+
+    expect(nba.placeholderAbbreviations).toBeDefined()
+    expect([...nba.placeholderAbbreviations!].sort()).toEqual(
+      ['cgs', 'crs', 'kys', 'sog', 'stars', 'stripes', 'world'],
+    )
+
+    expect(nhl.placeholderAbbreviations).toBeDefined()
+    expect([...nhl.placeholderAbbreviations!].sort()).toEqual(
+      ['cannhl', 'finnhl', 'swenhl', 'usanhl'],
+    )
+  })
+
+  it('opts MLB OUT of the logo+color placeholder heuristic; opts NBA + NHL IN', () => {
+    const mlb = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'mlb')!
+    const nba = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'nba')!
+    const nhl = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'nhl')!
+
+    // MLB: All-Star roster names are exhaustively enumerated in the Set; the
+    // heuristic must stay OFF so a future real MLB team with incomplete
+    // metadata is not accidentally filtered.
+    expect(mlb.applyLogoColorPlaceholderHeuristic).toBeFalsy()
+
+    // NBA + NHL: rotating All-Star / international rosters may add new variants
+    // we haven't enumerated — heuristic ON.
+    expect(nba.applyLogoColorPlaceholderHeuristic).toBe(true)
+    expect(nhl.applyLogoColorPlaceholderHeuristic).toBe(true)
+  })
+
+  it('sets teamOrderConvention to away_first for all US-sports leagues (MLB/NBA/NHL)', () => {
+    const mlb = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'mlb')!
+    const nba = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'nba')!
+    const nhl = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'nhl')!
+    expect(mlb.teamOrderConvention).toBe('away_first')
+    expect(nba.teamOrderConvention).toBe('away_first')
+    expect(nhl.teamOrderConvention).toBe('away_first')
+  })
+
   it('isDiscoveryGameSlug recognizes valid MLB game slugs', () => {
     expect(isDiscoveryGameSlug('mlb-tex-nyy-2026-05-05')).toBe(true)
     expect(isDiscoveryGameSlug('mlb-cin-chc-2026-05-05')).toBe(true)

@@ -149,35 +149,33 @@ function buildOutcome(
 /**
  * Map a payload market type onto a `sports_market_type` value the existing
  * `sports-games-data` helpers (`buildButtons`, `groupMarketsByType`) recognize.
+ * `market_type` is now an open string (Fix 1, 2026-05-11) — unrecognized values
+ * fall through to `null`, which routes them into the binary-outcome detection
+ * path in `buildButtons` (the correct safe default; matches the old `case 'nrfi'`
+ * arm and the downstream `.includes('moneyline')`/`.includes('spread')`/
+ * `.includes('total')` substring matching in `sports-games-data.ts`).
  *
- * Mapping:
- * - `'moneyline'` → `'moneyline'`
- * - `'spreads'`   → `'spread'` (singular — matches `groupMarketsByType` regex)
- * - `'totals'`    → `'total'`  (singular — matches `groupMarketsByType` regex)
- * - `'nrfi'`      → `null` (NRFI is binary YES/NO; let `buildButtons`'s
- *                            binary-detection path handle it via outcome
- *                            shape — assigning a sports_market_type would
- *                            misclassify it as a moneyline)
+ * Mapping (others → null):
+ * - `'moneyline'`            → `'moneyline'`
+ * - `'spreads'`              → `'spread'`  (singular — matches groupMarketsByType regex)
+ * - `'totals'`               → `'total'`   (singular)
+ * - `'first_half_moneyline'` → `'first_half_moneyline'`
+ * - `'first_half_spreads'`   → `'first_half_spread'`
+ * - `'first_half_totals'`    → `'first_half_total'`
+ * - `'nrfi'`                 → `null` (binary YES/NO; let buildButtons detect it)
  */
-function toSportsMarketType(payloadType: DiscoveredGameMarketEntry['market_type']): string | null {
-  switch (payloadType) {
-    case 'moneyline':
-      return 'moneyline'
-    case 'spreads':
-      return 'spread'
-    case 'totals':
-      return 'total'
-    case 'first_half_moneyline':
-      return 'first_half_moneyline'
-    case 'first_half_spreads':
-      return 'first_half_spread'
-    case 'first_half_totals':
-      return 'first_half_total'
-    case 'nrfi':
-      return null
-    default:
-      return null
-  }
+const SPORTS_MARKET_TYPE_OUTPUT_MAP: ReadonlyMap<string, string | null> = new Map([
+  ['moneyline', 'moneyline'],
+  ['spreads', 'spread'],
+  ['totals', 'total'],
+  ['first_half_moneyline', 'first_half_moneyline'],
+  ['first_half_spreads', 'first_half_spread'],
+  ['first_half_totals', 'first_half_total'],
+  ['nrfi', null],
+])
+
+function toSportsMarketType(payloadType: string): string | null {
+  return SPORTS_MARKET_TYPE_OUTPUT_MAP.get(payloadType) ?? null
 }
 
 /**

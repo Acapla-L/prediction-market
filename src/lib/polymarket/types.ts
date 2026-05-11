@@ -41,28 +41,13 @@ export interface PolymarketMarket {
    */
   gameStartTime?: string
   /**
-   * Phase B v2 multi-section markets. Polymarket Gamma per-game responses
-   * carry up to 5 markets per event across 4 section types: moneyline, nrfi,
-   * spreads, totals. Verified via the MLB per-game fixture (5 markets per
-   * event, e.g. moneyline + nrfi + spreads + 2 totals at different lines).
-   * Phase A v2 futures markets do NOT carry this field. Surfaced into the
-   * Phase B sidecar payload via `normalize-games-discovery-payload.ts` so the
-   * sports route can group markets by section type at render time.
+   * Phase B v2 multi-section market partition key. Open set — Polymarket emits
+   * new values without notice (relaxed from a literal union 2026-05-11). Surfaced
+   * into the Phase B sidecar payload via normalize-games-discovery-payload.ts so
+   * the sports route can group markets by section type at render time. Phase A v2
+   * futures markets leave it undefined.
    */
-  sportsMarketType?:
-    | 'moneyline'
-    | 'nrfi'
-    | 'spreads'
-    | 'totals'
-    | 'first_half_moneyline'
-    | 'first_half_spreads'
-    | 'first_half_totals'
-    // Phase B v2 v2: player-prop markets pass through the type but are
-    // filtered out at `mapAllMarkets` time. Listed here so the `.has()`
-    // membership check on `PLAYER_PROP_MARKET_TYPES` typechecks cleanly.
-    | 'points'
-    | 'rebounds'
-    | 'assists'
+  sportsMarketType?: string
   /**
    * Phase B v2 line value for spreads (e.g. -1.5) and totals (e.g. 7.5, 8.5).
    * `null` when the market has no line concept (moneyline, nrfi). Verified
@@ -70,6 +55,23 @@ export interface PolymarketMarket {
    * moneyline + nrfi carry `null`/missing.
    */
   line?: number | null
+}
+
+/**
+ * One team from a Polymarket Gamma per-game event's `teams[]` array. Only
+ * `name` is read on the hot path (`resolveTeamLabels`); the rest is carried
+ * for future use. `abbreviation` is nullable — UCol's is unreliable per probe.
+ */
+export interface PolymarketTeam {
+  id?: number
+  name: string
+  league?: string
+  abbreviation?: string | null
+  alias?: string | null
+  logo?: string | null
+  color?: string | null
+  record?: string | null
+  providerId?: number | null
 }
 
 export interface PolymarketEvent {
@@ -102,6 +104,17 @@ export interface PolymarketEvent {
   negRisk?: boolean
   /** Mirror of `negRisk` from a different field name in Polymarket's payload. */
   enableNegRisk?: boolean
+  /**
+   * Tier 1 source for per-game team labels — `[away, home]` for US sports
+   * (MLB/NBA/NHL), `[home, away]` for soccer (per `teamOrderConvention` on
+   * the league registry). Universally populated on per-game events; absent on
+   * Phase A v2 futures + the FIFA event.
+   */
+  teams?: readonly PolymarketTeam[] | null
+  /** Tier 2 (defensive forward-compat) — absent on every probed league today. */
+  homeTeam?: string | null
+  /** Tier 2 (defensive forward-compat) — absent on every probed league today. */
+  awayTeam?: string | null
   // NOTE: `gameStartTime` lives on PolymarketMarket, NOT here. Polymarket
   // Gamma's per-game response puts the tipoff on each market entry. See
   // `PolymarketMarket.gameStartTime` above.
