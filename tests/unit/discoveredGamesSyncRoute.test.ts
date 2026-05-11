@@ -4,10 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { GET } from '@/app/api/sync/polymarket-games-discovery/route'
 import { isCronAuthorized } from '@/lib/auth-cron'
 import { DiscoveredGamesRepository } from '@/lib/db/queries/discovered-games'
-import { fetchPolymarketGammaEventsBySeries } from '@/lib/polymarket/client'
+import { fetchPolymarketGammaEventsBySeriesPaged } from '@/lib/polymarket/client'
 
 vi.mock('@/lib/polymarket/client', () => ({
-  fetchPolymarketGammaEventsBySeries: vi.fn(),
+  fetchPolymarketGammaEventsBySeriesPaged: vi.fn(),
 }))
 vi.mock('@/lib/db/queries/discovered-games', () => ({
   DiscoveredGamesRepository: {
@@ -34,7 +34,7 @@ vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
 }))
 
-const mockedFetch = vi.mocked(fetchPolymarketGammaEventsBySeries)
+const mockedFetch = vi.mocked(fetchPolymarketGammaEventsBySeriesPaged)
 const mockedAuth = vi.mocked(isCronAuthorized)
 const mockedRevalidateTag = vi.mocked(revalidateTag)
 const mockedRevalidatePath = vi.mocked(revalidatePath)
@@ -198,7 +198,7 @@ describe('/api/sync/polymarket-games-discovery', () => {
     )
   })
 
-  it('handles fetchPolymarketGammaEventsBySeries returning null (transport failure)', async () => {
+  it('handles fetchPolymarketGammaEventsBySeriesPaged returning null (transport failure)', async () => {
     // All leagues fail transport → one network_error result per league.
     mockedFetch.mockResolvedValue(null)
 

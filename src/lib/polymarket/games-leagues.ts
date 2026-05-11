@@ -41,6 +41,31 @@ export interface DiscoveredGamesLeague {
    */
   placeholderAbbreviations?: ReadonlySet<string>
   /**
+   * Opt-in tertiary placeholder filter: when true, teams with BOTH
+   * `logo === null` AND `color === null` are treated as placeholders after
+   * the `placeholderAbbreviations` Set and the name-pattern checks both fail.
+   *
+   * Default: undefined (false) — heuristic does NOT fire. MUST be omitted
+   * (or false) for any league where real teams legitimately ship with
+   * incomplete metadata (e.g. FIFA WC Switzerland, WNBA expansion teams).
+   *
+   * Set `true` for leagues with rotating All-Star / international-tournament
+   * rosters where Polymarket may add new placeholder variants we haven't yet
+   * enumerated in `placeholderAbbreviations` (e.g. NBA's All-Star format).
+   */
+  applyLogoColorPlaceholderHeuristic?: boolean
+  /**
+   * Whether `event.teams[0]` is the away team or the home team.
+   * - `'away_first'` for US sports (MLB/NBA/NHL/WNBA/NFL/UFC) — slug + title
+   *   list the visiting team first (e.g. `mlb-mil-stl-...` = "Milwaukee vs.
+   *   St. Louis" with St. Louis at home).
+   * - `'home_first'` for soccer (EPL/La Liga/UCL/UCol/MLS/NWSL/FIFA WC) —
+   *   slug + title list the home team first.
+   * Empirically verified 2026-05-08 across 7 league fixtures × 76 events.
+   * REQUIRED — no reliable default; the convention is sport-class-specific.
+   */
+  teamOrderConvention: 'away_first' | 'home_first'
+  /**
    * Optional event-level filter applied during discovery sync. Returns true if
    * the slug should be persisted; false to skip. Default behavior (when
    * undefined): persist every event. Phase B v2 v3 (soccer) will use this to
@@ -57,6 +82,7 @@ export const DISCOVERED_GAMES_LEAGUES: readonly DiscoveredGamesLeague[] = [
     mainTag: 'mlb',
     sportRouteSlug: 'baseball',
     placeholderAbbreviations: new Set(['al', 'nl']),
+    teamOrderConvention: 'away_first',
   },
   {
     slug: 'nba',
@@ -65,6 +91,8 @@ export const DISCOVERED_GAMES_LEAGUES: readonly DiscoveredGamesLeague[] = [
     mainTag: 'nba',
     sportRouteSlug: 'basketball',
     placeholderAbbreviations: new Set(['crs', 'cgs', 'sog', 'kys', 'world', 'stars', 'stripes']),
+    applyLogoColorPlaceholderHeuristic: true,
+    teamOrderConvention: 'away_first',
   },
   {
     slug: 'nhl',
@@ -73,6 +101,8 @@ export const DISCOVERED_GAMES_LEAGUES: readonly DiscoveredGamesLeague[] = [
     mainTag: 'nhl',
     sportRouteSlug: 'hockey',
     placeholderAbbreviations: new Set(['finnhl', 'cannhl', 'swenhl', 'usanhl']),
+    applyLogoColorPlaceholderHeuristic: true,
+    teamOrderConvention: 'away_first',
   },
 ] as const
 

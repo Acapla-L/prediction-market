@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   fetchFifaGammaEvent,
   fetchPolymarketGammaEvent,
-  fetchPolymarketGammaEventsBySeries,
+  fetchPolymarketGammaEventsBySeriesPaged,
 } from '@/lib/polymarket/client'
 import { FIFA_EVENT_SLUG } from '@/lib/polymarket/constants'
 
@@ -184,7 +184,7 @@ describe('polymarket client — fetchFifaGammaEvent alias', () => {
   })
 })
 
-describe('polymarket client — fetchPolymarketGammaEventsBySeries (Phase B per-game)', () => {
+describe('polymarket client — fetchPolymarketGammaEventsBySeriesPaged (Phase B per-game)', () => {
   let fetchSpy: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
@@ -202,6 +202,8 @@ describe('polymarket client — fetchPolymarketGammaEventsBySeries (Phase B per-
   //   Bug 1: groupItemTitle is undefined on Moneyline markets (3 of 15)
   //   Bug 2: gameStartTime is at market level, NOT event level (15 of 15
   //   markets carry it; 0 of 3 events carry it)
+  // The fixture is a bare array of 3 events (< SERIES_PAGE_LIMIT) so the
+  // paginated function makes exactly one fetch and exits the loop.
   function loadRealFixture(): unknown {
     return JSON.parse(
       readFileSync(
@@ -211,14 +213,22 @@ describe('polymarket client — fetchPolymarketGammaEventsBySeries (Phase B per-
     )
   }
 
+  // Minimal valid GammaEventSchema-shaped object. Enough for array-length /
+  // fetch-call-count assertions; not for normalize behavior.
+  function makeMinimalGammaEvent(i: number): { slug: string, markets: unknown[] } {
+    return { slug: `evt-${i}`, markets: [] }
+  }
+
   it('parses the real captured Polymarket Gamma per-game response (regression for both bugs)', async () => {
     const fixture = loadRealFixture()
     fetchSpy.mockResolvedValueOnce(mockJsonResponse(fixture))
 
-    const result = await fetchPolymarketGammaEventsBySeries('3')
+    const result = await fetchPolymarketGammaEventsBySeriesPaged('3')
 
     expect(result).not.toBeNull()
     expect(result).toHaveLength(3)
+    // Fixture is bare array of < 50 events → single fetch, loop exits.
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
 
     result!.forEach((event) => {
       expect(event.slug).toMatch(/^mlb-/)
@@ -240,7 +250,7 @@ describe('polymarket client — fetchPolymarketGammaEventsBySeries (Phase B per-
     const fixture = loadRealFixture()
     fetchSpy.mockResolvedValueOnce(mockJsonResponse(fixture))
 
-    const result = await fetchPolymarketGammaEventsBySeries('3')
+    const result = await fetchPolymarketGammaEventsBySeriesPaged('3')
 
     let emptyCount = 0
     let populatedCount = 0
@@ -264,7 +274,7 @@ describe('polymarket client — fetchPolymarketGammaEventsBySeries (Phase B per-
     const fixture = loadRealFixture()
     fetchSpy.mockResolvedValueOnce(mockJsonResponse(fixture))
 
-    const result = await fetchPolymarketGammaEventsBySeries('3')
+    const result = await fetchPolymarketGammaEventsBySeriesPaged('3')
 
     result!.forEach((event) => {
       // PolymarketEvent type no longer carries gameStartTime — verifying
@@ -279,32 +289,84 @@ describe('polymarket client — fetchPolymarketGammaEventsBySeries (Phase B per-
     })
   })
 
-  it('builds the per-series URL with active=true&closed=false&limit', async () => {
+  it('builds the page-1 per-series URL with active=true&closed=false&limit=50&offset=0', async () => {
     fetchSpy.mockResolvedValueOnce(mockJsonResponse([]))
-    await fetchPolymarketGammaEventsBySeries('3')
+    await fetchPolymarketGammaEventsBySeriesPaged('3')
 
     const urlArg = fetchSpy.mock.calls[0]?.[0] as string
     expect(urlArg).toContain('series_id=3')
     expect(urlArg).toContain('active=true')
     expect(urlArg).toContain('closed=false')
     expect(urlArg).toContain('limit=50')
+    expect(urlArg).toContain('offset=0')
   })
 
-  it('returns empty array (not null) when series has no active games', async () => {
+  it('returns empty array (not null) when series has no active games (empty first page)', async () => {
     fetchSpy.mockResolvedValueOnce(mockJsonResponse([]))
-    const result = await fetchPolymarketGammaEventsBySeries('3')
+    const result = await fetchPolymarketGammaEventsBySeriesPaged('3')
     expect(result).toEqual([])
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('returns null when transport fails after retries', async () => {
+  it('follows offset pagination across two pages and concatenates', async () => {
+    const page1 = Array.from({ length: 50 }, (_, i) => makeMinimalGammaEvent(i))
+    const page2 = Array.from({ length: 7 }, (_, i) => makeMinimalGammaEvent(50 + i))
+    fetchSpy.mockResolvedValueOnce(mockJsonResponse(page1))
+    fetchSpy.mockResolvedValueOnce(mockJsonResponse(page2))
+
+    const result = await fetchPolymarketGammaEventsBySeriesPaged('3')
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    const secondUrl = fetchSpy.mock.calls[1]?.[0] as string
+    expect(secondUrl).toContain('offset=50')
+    expect(result).toHaveLength(57)
+  })
+
+  it('stops after a single short page (fewer than 50 rows)', async () => {
+    const page = Array.from({ length: 10 }, (_, i) => makeMinimalGammaEvent(i))
+    fetchSpy.mockResolvedValueOnce(mockJsonResponse(page))
+
+    const result = await fetchPolymarketGammaEventsBySeriesPaged('3')
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(result).toHaveLength(10)
+  })
+
+  it('returns the page-1 partial accumulation when a later page fails', async () => {
+    const page1 = Array.from({ length: 50 }, (_, i) => makeMinimalGammaEvent(i))
+    fetchSpy.mockResolvedValueOnce(mockJsonResponse(page1))
+    // fetchWithRetry retries 500 once → 2 calls, both 500 → null →
+    // paged function returns the page-1 partial (offset !== 0).
     fetchSpy.mockResolvedValue(mockStatusResponse(500))
-    const result = await fetchPolymarketGammaEventsBySeries('3')
+
+    const result = await fetchPolymarketGammaEventsBySeriesPaged('3')
+
+    expect(result).toHaveLength(50)
+  })
+
+  it('returns null when transport fails on the first page after retries', async () => {
+    fetchSpy.mockResolvedValue(mockStatusResponse(500))
+    const result = await fetchPolymarketGammaEventsBySeriesPaged('3')
     expect(result).toBeNull()
   })
 
-  it('returns null when Zod schema rejects the response', async () => {
+  it('returns null when Zod schema rejects the first-page response', async () => {
     fetchSpy.mockResolvedValueOnce(mockJsonResponse([{ totally: 'wrong-shape' }]))
-    const result = await fetchPolymarketGammaEventsBySeries('3')
+    const result = await fetchPolymarketGammaEventsBySeriesPaged('3')
     expect(result).toBeNull()
+  })
+
+  it('defensively accepts the { events, has_more } object envelope form', async () => {
+    fetchSpy.mockResolvedValueOnce(mockJsonResponse({
+      events: [makeMinimalGammaEvent(0), makeMinimalGammaEvent(1)],
+      has_more: false,
+    }))
+
+    const result = await fetchPolymarketGammaEventsBySeriesPaged('3')
+
+    // Object envelope with 2 events (< 50) → loop exits after one fetch.
+    // (We ignore has_more; row count is the signal.)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(result).toHaveLength(2)
   })
 })

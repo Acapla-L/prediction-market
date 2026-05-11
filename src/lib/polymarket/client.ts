@@ -79,30 +79,34 @@ const GammaMarketSchema = z.object({
   // A v2 futures markets do not include it. Surfaced into the synthetic
   // Event's `created_at` and the sidecar's `game_start_time` column.
   gameStartTime: z.string().optional(),
-  // Phase B v2 multi-section market fields. `sportsMarketType` partitions a
-  // game's 5 markets into moneyline/nrfi/spreads/totals; `line` carries the
-  // numeric line value for spreads/totals (null otherwise). Optional because
-  // Phase A v2 futures markets do not include either. Surfaced into the
-  // sidecar payload entries via `normalize-games-discovery-payload.ts` so
-  // the sports route can group markets by section.
-  sportsMarketType: z.enum([
-    'moneyline',
-    'nrfi',
-    'spreads',
-    'totals',
-    'first_half_moneyline',
-    'first_half_spreads',
-    'first_half_totals',
-    // Phase B v2 v2: player-prop markets are accepted by the schema so they
-    // pass Zod parsing, then filtered downstream in `mapAllMarkets` via
-    // `PLAYER_PROP_MARKET_TYPES`. Without these enum values, NBA per-game
-    // events containing player-prop markets would fail the entire event's
-    // Zod parse and the whole game would be dropped from discovery.
-    'points',
-    'rebounds',
-    'assists',
-  ]).optional(),
+  // Phase B v2: `sportsMarketType` partitions a game's markets into sections.
+  // Polymarket support confirmed this is an OPEN SET — new values appear without
+  // notice (esp. finals/knockouts). Relaxed from z.enum() to z.string() so an
+  // unknown value doesn't fail the whole event's Zod parse. Observability layer
+  // (`KNOWN_SPORTS_MARKET_TYPES`) in normalize-games-discovery-payload.ts warns
+  // on unrecognized values; nothing rejects. `line` carries the numeric line
+  // value for spreads/totals (null otherwise).
+  sportsMarketType: z.string().optional(),
   line: z.number().nullable().optional(),
+})
+
+/**
+ * One team object from a Polymarket Gamma per-game event's `teams[]` array.
+ * Universally populated across MLB/NBA/NHL/La Liga/FIFA WC/UCL/UCol (76/76
+ * events probed 2026-05-08). Only `name` is read by `resolveTeamLabels`; the
+ * rest is carried for future use (e.g. inline teams_cache population). Schema
+ * is permissive — `abbreviation` is nullable+optional (UCol's is unreliable).
+ */
+const TeamFromEventSchema = z.object({
+  id: z.number().optional(),
+  name: z.string(),
+  league: z.string().optional(),
+  abbreviation: z.string().nullable().optional(),
+  alias: z.string().nullable().optional(),
+  logo: z.string().nullable().optional(),
+  color: z.string().nullable().optional(),
+  record: z.string().nullable().optional(),
+  providerId: z.number().nullable().optional(),
 })
 
 const GammaEventSchema = z.object({
@@ -122,12 +126,35 @@ const GammaEventSchema = z.object({
   // NOT the event level — verified via real fixture.
   negRisk: z.boolean().optional(),
   enableNegRisk: z.boolean().optional(),
+  // Tier 1 source for per-game team labels — universally populated on per-game
+  // events. NO .length(2) here: the runtime length check lives in
+  // resolveTeamLabels; a strict schema would reject the whole event (incl.
+  // the FIFA overlay path) on a malformed teams[]. Phase A v2 futures + the
+  // FIFA event don't carry it (optional).
+  teams: z.array(TeamFromEventSchema).optional(),
+  // Tier 2 (defensive forward-compat): Polymarket support claimed these are
+  // reliable on all leagues; empirically absent on 0/76 events probed
+  // 2026-05-08. Kept in case Polymarket starts populating them.
+  homeTeam: z.string().optional().nullable(),
+  awayTeam: z.string().optional().nullable(),
 })
 
 const GammaResponseSchema = z.array(GammaEventSchema).min(1)
-// Permissive list-form: per-league series queries may legitimately return
-// `[]` during off-season or when Polymarket has no current matches.
-const GammaListResponseSchema = z.array(GammaEventSchema)
+
+/**
+ * Paginated `/events?series_id=N` response. Empirically the series query
+ * returns a BARE JSON array (no `{events, has_more}` envelope — verified via
+ * live curls 2026-05-11; see .claude/skills/polymarket-api/SKILL.md). The
+ * object form is handled defensively in case Polymarket changes the shape.
+ * End-of-pages is detected by ROW COUNT (`page.length < limit`), not `has_more`.
+ */
+const GammaPaginatedResponseSchema = z.union([
+  z.object({
+    events: z.array(GammaEventSchema),
+    has_more: z.boolean().optional(),
+  }),
+  z.array(GammaEventSchema),
+])
 
 const PriceHistoryPointSchema = z.object({
   t: z.number(),
@@ -238,6 +265,9 @@ function mapGammaEventToPolymarketEvent(
     createdAt: gammaEvent.createdAt,
     negRisk: gammaEvent.negRisk,
     enableNegRisk: gammaEvent.enableNegRisk,
+    teams: gammaEvent.teams ?? null,
+    homeTeam: gammaEvent.homeTeam ?? null,
+    awayTeam: gammaEvent.awayTeam ?? null,
     markets: gammaEvent.markets.map(m => ({
       id: m.id,
       conditionId: m.conditionId,
@@ -273,51 +303,84 @@ function mapGammaEventToPolymarketEvent(
   }
 }
 
+const SERIES_PAGE_LIMIT = 50
+// Safety: cap total pages so a pathological response can't loop forever.
+// MLS at ~156 active events = 4 pages; NFL season ~272 = 6 pages; La Liga ~136 = 3.
+// 500 events / 50-per-page = 10 pages. Bump if a league legitimately exceeds.
+const SERIES_HARD_CAP_EVENTS = 500
+
 /**
  * Fetches all currently-relevant Polymarket Gamma events for a sport series
- * (Phase B per-game discovery). Filters to active + non-closed at the API
- * level; caller filters further by date window if needed.
+ * (Phase B per-game discovery), following offset-based pagination.
  *
- * Returns `[]` (not `null`) on empty result; returns `null` on transport
- * failure or schema rejection so the sync route can distinguish between
- * "nothing to sync today" and "Gamma is unhappy and we should mark failure".
+ * Filters to active + non-closed at the API level. Detects the last page by
+ * row count: a page with fewer than `SERIES_PAGE_LIMIT` rows is the last one
+ * (the `?series_id=` query returns a bare JSON array — no `has_more` field;
+ * the object form, if it ever appears, is handled defensively).
+ *
+ * Returns `[]` (not `null`) on an empty first page; returns `null` only on
+ * transport failure or schema rejection of the FIRST page (so the sync route
+ * can distinguish "nothing to sync" from "Gamma is unhappy"). A failure on a
+ * LATER page returns the partial accumulation rather than discarding good rows.
  *
  * `seriesId` is the numeric string from `GET /sports` (e.g. "3" for MLB).
  */
-export async function fetchPolymarketGammaEventsBySeries(
+export async function fetchPolymarketGammaEventsBySeriesPaged(
   seriesId: string,
-  options: { limit?: number } = {},
 ): Promise<readonly PolymarketEvent[] | null> {
-  const limit = options.limit ?? 50
-  const qs = new URLSearchParams({
-    series_id: seriesId,
-    active: 'true',
-    closed: 'false',
-    limit: String(limit),
-  })
-  const url = `${getGammaBase()}/events?${qs.toString()}`
+  const accumulated: PolymarketEvent[] = []
+  let offset = 0
 
-  const res = await fetchWithRetry(url)
-  if (!res || !res.ok) {
-    return null
+  while (true) {
+    const qs = new URLSearchParams({
+      series_id: seriesId,
+      active: 'true',
+      closed: 'false',
+      limit: String(SERIES_PAGE_LIMIT),
+      offset: String(offset),
+    })
+    const url = `${getGammaBase()}/events?${qs.toString()}`
+
+    const res = await fetchWithRetry(url)
+    if (!res || !res.ok) {
+      return offset === 0 ? null : accumulated
+    }
+
+    let raw: unknown
+    try {
+      raw = await res.json()
+    }
+    catch (err) {
+      console.error('[polymarket] gamma series json parse failed:', err)
+      return offset === 0 ? null : accumulated
+    }
+
+    const parsed = GammaPaginatedResponseSchema.safeParse(raw)
+    if (!parsed.success) {
+      console.error('[polymarket] gamma series zod failed:', parsed.error.issues)
+      return offset === 0 ? null : accumulated
+    }
+
+    const page = Array.isArray(parsed.data) ? parsed.data : parsed.data.events
+    accumulated.push(...page.map(mapGammaEventToPolymarketEvent))
+
+    // End-of-pages: a short page (fewer rows than the limit) is the last page.
+    // An empty page also terminates. (We deliberately ignore any `has_more`
+    // field — the bare-array series form doesn't carry one.)
+    if (page.length < SERIES_PAGE_LIMIT) {
+      break
+    }
+    if (accumulated.length >= SERIES_HARD_CAP_EVENTS) {
+      console.warn('[polymarket] series pagination hit hard cap', {
+        seriesId,
+        accumulated: accumulated.length,
+      })
+      break
+    }
+    offset += SERIES_PAGE_LIMIT
   }
 
-  let data: unknown
-  try {
-    data = await res.json()
-  }
-  catch (err) {
-    console.error('[polymarket] gamma series json parse failed:', err)
-    return null
-  }
-
-  const parsed = GammaListResponseSchema.safeParse(data)
-  if (!parsed.success) {
-    console.error('[polymarket] gamma series zod failed:', parsed.error.issues)
-    return null
-  }
-
-  return parsed.data.map(mapGammaEventToPolymarketEvent)
+  return accumulated
 }
 
 /**

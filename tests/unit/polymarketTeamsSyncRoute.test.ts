@@ -420,14 +420,16 @@ describe('/api/sync/polymarket-teams', () => {
   it('filters NBA placeholder abbreviations from teams_cache sync', async () => {
     // 30 real teams + 3 NBA-specific placeholders (`world`, `stars`, `crs` —
     // all members of the NBA registry's `placeholderAbbreviations` Set).
+    // Real teams ship with non-null logo + color so the opt-in Tier 3
+    // logo+color heuristic (ON for NBA) does NOT misfire on them.
     const realNbaTeams = Array.from({ length: 30 }, (_, i) => ({
       id: 5000 + i,
       name: `NBA Team ${i + 1}`,
       league: 'nba',
       abbreviation: `nb${i.toString().padStart(2, '0')}`,
       alias: null,
-      logo: null,
-      color: null,
+      logo: `https://example.test/nba-team-${i}.png`,
+      color: '#112233',
       record: null,
     }))
     const placeholders = [
@@ -465,14 +467,16 @@ describe('/api/sync/polymarket-teams', () => {
     // 32 real NHL teams + 2 NHL-specific placeholders (`finnhl`, `swenhl` —
     // 4-Nations Face-Off / international placeholders in the NHL registry's
     // `placeholderAbbreviations` Set: `{'finnhl','cannhl','swenhl','usanhl'}`).
+    // Real teams ship with non-null logo + color so the opt-in Tier 3
+    // logo+color heuristic (ON for NHL) does NOT misfire on them.
     const realNhlTeams = Array.from({ length: 32 }, (_, i) => ({
       id: 6000 + i,
       name: `NHL Team ${i + 1}`,
       league: 'nhl',
       abbreviation: `nh${i.toString().padStart(2, '0')}`,
       alias: null,
-      logo: null,
-      color: null,
+      logo: `https://example.test/nhl-team-${i}.png`,
+      color: '#445566',
       record: null,
     }))
     const placeholders = [
@@ -515,8 +519,11 @@ describe('/api/sync/polymarket-teams', () => {
       league: 'nba',
       abbreviation: 'al',
       alias: null,
-      logo: null,
-      color: null,
+      // Non-null logo + color so neither Tier 2 (name pattern) nor Tier 3
+      // (logo+color heuristic, ON for NBA) can filter it — the only thing that
+      // COULD filter it is Tier 1, which must not leak MLB's Set into NBA.
+      logo: 'https://example.test/atlanta-legends.png',
+      color: '#aabbcc',
       record: null,
     }
     mockFetchPerLeague({ nba: [nbaTeamWithMlbPlaceholderAbbrev] })
@@ -537,6 +544,151 @@ describe('/api/sync/polymarket-teams', () => {
     )
     expect(nbaUpserts).toHaveLength(1)
     expect(nbaUpserts[0][0].abbreviation).toBe('al')
+  })
+
+  // ---------------------------------------------------------------------------
+  // Polymarket guidance hardening — three-tier placeholder filter.
+  //
+  // Tier 1: explicit per-league `placeholderAbbreviations` Set (authoritative).
+  // Tier 2: `name.includes('all-star')` (always-on belt-and-suspenders).
+  // Tier 3: `logo === null && color === null` (opt-in via
+  //         `applyLogoColorPlaceholderHeuristic`, ON for NBA/NHL, OFF for MLB).
+  // ---------------------------------------------------------------------------
+
+  it('tier-mixed NBA run: persists a fully-populated real team, filters Tier 1/2/3 placeholders', async () => {
+    const realTeam = {
+      id: 8001,
+      name: 'New York Yankees', // benign; this is the NBA league response for the test
+      league: 'nba',
+      abbreviation: 'nyy',
+      alias: 'Yankees',
+      logo: 'https://example.test/nyy.png',
+      color: '#003087',
+      record: '10-2',
+    }
+    const tier1Placeholder = {
+      // 'crs' is in NBA's placeholderAbbreviations Set — caught by Tier 1 even
+      // though it has a real logo + color (Tier 3 wouldn't catch it).
+      id: 8002,
+      name: 'Chris Paul Selection',
+      league: 'nba',
+      abbreviation: 'crs',
+      alias: null,
+      logo: 'https://example.test/crs.png',
+      color: '#777777',
+      record: null,
+    }
+    const tier2Placeholder = {
+      // Name contains the literal "all-star" tell — Tier 2 catches it
+      // regardless of the heuristic flag. (Abbreviation 'east' is NOT in the
+      // Set, so Tier 1 misses; logo+color null too but Tier 2 fires first.)
+      id: 8003,
+      name: 'East All-Star',
+      league: 'nba',
+      abbreviation: 'east',
+      alias: null,
+      logo: null,
+      color: null,
+      record: null,
+    }
+    const tier3Placeholder = {
+      // Name does NOT contain the literal "all-star" substring (it says
+      // "Allstar"), abbreviation not in the Set — so Tier 1 and Tier 2 both
+      // miss. Tier 3 (heuristic ON for NBA) catches the logo+color null pair.
+      id: 8004,
+      name: 'Some New Allstar Roster',
+      league: 'nba',
+      abbreviation: 'newroster',
+      alias: null,
+      logo: null,
+      color: null,
+      record: null,
+    }
+    mockFetchPerLeague({
+      nba: [realTeam, tier1Placeholder, tier2Placeholder, tier3Placeholder],
+    })
+
+    const res = await GET(makeRequest())
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    const nbaResult = body.results.find((r: { league: string }) => r.league === 'nba')
+    expect(nbaResult).toBeDefined()
+    expect(nbaResult.status).toBe('ok')
+    expect(nbaResult.team_count).toBe(1)
+    expect(nbaResult.skipped_count).toBe(3)
+    expect(nbaResult.error_count).toBe(0)
+
+    const nbaUpserts = mockedRepo.upsertSuccess.mock.calls.filter(
+      ([input]) => input.league === 'nba',
+    )
+    expect(nbaUpserts).toHaveLength(1)
+    expect(nbaUpserts[0][0].abbreviation).toBe('nyy')
+  })
+
+  it('tier 3 does NOT fire for a logo+color-null team when the league heuristic is OFF (MLB)', async () => {
+    // MLB has `applyLogoColorPlaceholderHeuristic` OMITTED. A real team that
+    // happens to ship with null logo + color (cf. FIFA WC Switzerland) MUST
+    // still persist. Abbreviation 'che' is not in MLB's Set, name has no
+    // "all-star" tell — so only Tier 3 could filter it, and it must not.
+    const switzerlandLikeTeam = {
+      id: 8101,
+      name: 'Switzerland',
+      league: 'mlb',
+      abbreviation: 'che',
+      alias: null,
+      logo: null,
+      color: null,
+      record: null,
+    }
+    mockFetchPerLeague({ mlb: [switzerlandLikeTeam] })
+
+    const res = await GET(makeRequest())
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    const mlbResult = body.results.find((r: { league: string }) => r.league === 'mlb')
+    expect(mlbResult).toBeDefined()
+    expect(mlbResult.status).toBe('ok')
+    expect(mlbResult.team_count).toBe(1)
+    expect(mlbResult.skipped_count).toBe(0)
+
+    const mlbUpserts = mockedRepo.upsertSuccess.mock.calls.filter(
+      ([input]) => input.league === 'mlb',
+    )
+    expect(mlbUpserts).toHaveLength(1)
+    expect(mlbUpserts[0][0].abbreviation).toBe('che')
+  })
+
+  it('tier 2 fires regardless of the heuristic flag (NHL "All-Star" name)', async () => {
+    // NHL has the heuristic ON, but Tier 2 (name pattern) is what catches this
+    // one — it has a real logo + color, so Tier 3 wouldn't.
+    const tier2NhlPlaceholder = {
+      id: 8201,
+      name: 'Atlantic Division All-Star',
+      league: 'nhl',
+      abbreviation: 'atl',
+      alias: null,
+      logo: 'https://example.test/atl-allstar.png',
+      color: '#abcabc',
+      record: null,
+    }
+    mockFetchPerLeague({ nhl: [tier2NhlPlaceholder] })
+
+    const res = await GET(makeRequest())
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    const nhlResult = body.results.find((r: { league: string }) => r.league === 'nhl')
+    expect(nhlResult).toBeDefined()
+    expect(nhlResult.status).toBe('ok')
+    expect(nhlResult.team_count).toBe(0)
+    expect(nhlResult.skipped_count).toBe(1)
+
+    const nhlUpserts = mockedRepo.upsertSuccess.mock.calls.filter(
+      ([input]) => input.league === 'nhl',
+    )
+    expect(nhlUpserts).toHaveLength(0)
   })
 
   it('locks the registry placeholderAbbreviations source-of-truth shape', async () => {
@@ -565,5 +717,10 @@ describe('/api/sync/polymarket-teams', () => {
     // NHL: 4 placeholders per Round 2.
     expect(nhl!.placeholderAbbreviations).toBeDefined()
     expect(nhl!.placeholderAbbreviations!.size).toBe(4)
+
+    // Tier 3 opt-in flag: OFF for MLB, ON for NBA + NHL.
+    expect(mlb!.applyLogoColorPlaceholderHeuristic).toBeFalsy()
+    expect(nba!.applyLogoColorPlaceholderHeuristic).toBe(true)
+    expect(nhl!.applyLogoColorPlaceholderHeuristic).toBe(true)
   })
 })

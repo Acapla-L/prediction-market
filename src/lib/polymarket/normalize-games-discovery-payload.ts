@@ -1,5 +1,7 @@
+import type { DiscoveredGamesLeague } from '@/lib/polymarket/games-leagues'
 import type { PolymarketEvent } from '@/lib/polymarket/types'
 import { z } from 'zod'
+import { getLeagueBySlug } from '@/lib/polymarket/games-leagues'
 
 /**
  * NBA player-prop market types filtered out of the per-game card MVP scope.
@@ -11,6 +13,32 @@ const PLAYER_PROP_MARKET_TYPES: ReadonlySet<string> = new Set([
   'points',
   'rebounds',
   'assists',
+])
+
+/**
+ * Observability-only registry of known-good `sportsMarketType` values. NOT used
+ * for parse-time rejection — the schema accepts any string. `mapAllMarkets`
+ * consults this to decide whether to emit an "unknown sportsMarketType" warn.
+ * Keep in sync with what we know Polymarket emits; the warn surfaces drift.
+ */
+const KNOWN_SPORTS_MARKET_TYPES: ReadonlySet<string> = new Set([
+  'moneyline',
+  'nrfi',
+  'spreads',
+  'totals',
+  'first_half_moneyline',
+  'first_half_spreads',
+  'first_half_totals',
+  'points',
+  'rebounds',
+  'assists',
+  // Probe-confirmed soccer types (added pre-soccer-ship, not relied on)
+  'both_teams_to_score',
+  'double_chance',
+  'draw_no_bet',
+  // UFC (winner) and tennis (set winner) seen during workstream-1 probes
+  'winner',
+  'set_winner',
 ])
 
 /**
@@ -35,15 +63,9 @@ export const DiscoveredGameMarketsPayloadSchema = z.object({
     polymarket_market_id: z.string(),
     slug: z.string(),
     question: z.string(),
-    market_type: z.enum([
-      'moneyline',
-      'nrfi',
-      'spreads',
-      'totals',
-      'first_half_moneyline',
-      'first_half_spreads',
-      'first_half_totals',
-    ]),
+    // Open set — see KNOWN_SPORTS_MARKET_TYPES + the relaxation note in
+    // GammaMarketSchema.sportsMarketType. Raw string is persisted unchanged.
+    market_type: z.string(),
     line: z.number().nullable().default(null),
     outcomes: z.tuple([z.string(), z.string()]).nullable(),
     outcome_prices: z.tuple([z.string(), z.string()]).nullable(),
@@ -67,14 +89,11 @@ export interface DiscoveredGameMarketEntry {
   slug: string
   question: string
   /**
-   * Phase B v2 expansion. MVP captured `'moneyline'` only. v2 captured 4
-   * section types (moneyline/nrfi/spreads/totals); Phase B v2 v2 adds NBA
-   * first-half variants (first_half_moneyline / first_half_spreads /
-   * first_half_totals) so the sports template can group those markets by
-   * section via existing `buildSportsGamesCardGroups` / `buildButtons`
-   * helpers.
+   * Open set — Polymarket emits new section types without notice. Persisted as
+   * the raw string; downstream `toSportsMarketType` maps known values, others
+   * fall through to null (binary-detection path). See KNOWN_SPORTS_MARKET_TYPES.
    */
-  market_type: 'moneyline' | 'nrfi' | 'spreads' | 'totals' | 'first_half_moneyline' | 'first_half_spreads' | 'first_half_totals'
+  market_type: string
   /**
    * Phase B v2 line value for spreads (e.g. -1.5) and totals (e.g. 7.5, 8.5).
    * `null` for moneyline + nrfi (no line concept). Sourced from Polymarket
@@ -157,7 +176,7 @@ export function pickMoneylineMarket(event: PolymarketEvent): PolymarketEvent['ma
  * Polymarket hasn't fully populated yet) are filtered out — same gating
  * the original `pickMoneylineMarket` consumer applied.
  *
- * Each entry preserves Polymarket's `sportsMarketType` (defaults to
+ * Each entry preserves Polymarket's `sportsMarketType` raw string (defaults to
  * `'moneyline'` only when source omits the field — Phase A v2 futures
  * never call this function so the default is a safe fallback for malformed
  * per-game entries) and `line` (null for moneyline/nrfi).
@@ -169,25 +188,14 @@ export function mapAllMarkets(event: PolymarketEvent): DiscoveredGameMarketEntry
       continue
     }
     // Phase B v2 v2 MVP filter: player-prop markets are out of team-vs-team
-    // card scope. Filter BEFORE the strict enum + observability warning so
-    // these don't trigger the `mapAllMarkets sportsMarketType missing`
-    // log line.
+    // card scope. Filter BEFORE the observability warnings so these don't
+    // trigger an "unknown sportsMarketType" log line.
     if (market.sportsMarketType && PLAYER_PROP_MARKET_TYPES.has(market.sportsMarketType)) {
       continue
     }
-    // After the player-prop filter above, `sportsMarketType` (if present) can
-    // only be one of the section types accepted by `DiscoveredGameMarketEntry.market_type`.
-    // TypeScript can't narrow this through the runtime `Set.has()` check, so
-    // we narrow explicitly via a typed variable.
-    const sectionType: DiscoveredGameMarketEntry['market_type'] | undefined
-      = market.sportsMarketType === 'points'
-        || market.sportsMarketType === 'rebounds'
-        || market.sportsMarketType === 'assists'
-        ? undefined
-        : market.sportsMarketType
     if (market.sportsMarketType == null) {
       // Observability: surface upstream Polymarket Gamma schema drift before
-      // it silently coerces every section into 'moneyline'. If this warning
+      // it silently coerces this section into 'moneyline'. If this warning
       // starts firing, the `sportsMarketType` field has been renamed/removed
       // upstream and the downstream `mapAllMarkets`/template grouping logic
       // will need to adapt.
@@ -198,11 +206,22 @@ export function mapAllMarkets(event: PolymarketEvent): DiscoveredGameMarketEntry
         defaulted_to: 'moneyline',
       })
     }
+    else if (!KNOWN_SPORTS_MARKET_TYPES.has(market.sportsMarketType)) {
+      // Observability: an unrecognized (but well-formed) section type. The raw
+      // string is still persisted unchanged — downstream `toSportsMarketType`
+      // routes it into the binary-detection path. This warn flags drift so the
+      // KNOWN_SPORTS_MARKET_TYPES registry can be updated.
+      console.warn('[polymarket] unknown sportsMarketType', {
+        value: market.sportsMarketType,
+        marketSlug: market.slug ?? event.slug,
+        eventSlug: event.slug,
+      })
+    }
     entries.push({
       polymarket_market_id: market.id,
       slug: market.slug ?? event.slug,
       question: market.groupItemTitle || event.title || market.id,
-      market_type: sectionType ?? 'moneyline',
+      market_type: market.sportsMarketType ?? 'moneyline',
       line: market.line ?? null,
       outcomes: market.outcomes,
       // outcomePrices is parsed as numeric tuple; persist as string tuple
@@ -222,31 +241,88 @@ export function mapAllMarkets(event: PolymarketEvent): DiscoveredGameMarketEntry
 }
 
 /**
- * Splits an event title like `"Texas Rangers vs. New York Yankees"` into
- * `[home, away]` labels. Polymarket's convention is `"{away-team} vs. {home-team}"`
- * — the FIRST team is away, the second is home. Returns `[null, null]` if
- * the title doesn't match the pattern.
+ * Resolve home/away team labels for a Polymarket per-game event via a 3-tier
+ * fallback chain.
+ *
+ * Tier 1 (primary — fired for 100% of events probed 2026-05-08):
+ *   `event.teams[]` array, length-2. Home/away assigned by
+ *   `league.teamOrderConvention` ('away_first' = teams[0] is away; 'home_first'
+ *   = teams[0] is home) because slug/title order encodes "first team listed",
+ *   not "home team". If `teams` is missing or its length ≠ 2, a console.warn
+ *   surfaces the case and we fall through to Tier 2.
+ *
+ * Tier 2 (defensive forward-compat — fired for 0% today):
+ *   `event.homeTeam` / `event.awayTeam`. Polymarket support claimed reliable
+ *   on all leagues; empirically absent on 0/76 events. Kept in case that
+ *   changes.
+ *
+ * Tier 3 (legacy fallback):
+ *   Title regex via `parseTeamLabelsFromTitle`. Covers closed-event archive
+ *   rows that might predate `teams[]` population, or any event missing both
+ *   prior sources. (Empirically: MLS per-game events ship with an EMPTY
+ *   `teams: []` despite the title carrying both names — Tier 3 handles that.)
  */
-export function parseTeamLabels(title: string | undefined): {
-  home: string | null
-  away: string | null
-} {
+export function resolveTeamLabels(
+  event: PolymarketEvent,
+  league: DiscoveredGamesLeague,
+): { home: string | null, away: string | null } {
+  // Tier 1 — event.teams[] (universal today)
+  if (Array.isArray(event.teams)) {
+    if (event.teams.length === 2) {
+      const [first, second] = event.teams
+      if (league.teamOrderConvention === 'away_first') {
+        return { away: first.name, home: second.name }
+      }
+      return { home: first.name, away: second.name }
+    }
+    // Present but malformed (0, 1, 3+) — observability, then fall through.
+    console.warn('resolveTeamLabels teams[] present but length != 2', {
+      eventSlug: event.slug,
+      league: league.slug,
+      teamsLength: event.teams.length,
+    })
+  }
+
+  // Tier 2 — explicit homeTeam / awayTeam (defensive forward-compat)
+  if (event.homeTeam || event.awayTeam) {
+    return {
+      home: event.homeTeam ?? null,
+      away: event.awayTeam ?? null,
+    }
+  }
+
+  // Tier 3 — title regex fallback (legacy archive safety net)
+  return parseTeamLabelsFromTitle(event.title, league)
+}
+
+/**
+ * Tier 3 of `resolveTeamLabels`. Title convention is league-dependent:
+ * US sports = `{away} vs {home}`, soccer = `{home} vs {away}`. The `league`
+ * parameter selects the order; output is byte-equivalent to the old
+ * `parseTeamLabels` for MLB ('away_first').
+ *
+ * The separator alternation is `vs?\.?` (the `s` is optional) so bare `"v."`
+ * titles like `"Cubs v. Mets"` match exactly as the old regex did. The team
+ * captures are `.+\S` / `\S.*` (anchored on non-whitespace) to keep the regex
+ * free of super-linear backtracking (eslint regexp/no-super-linear-backtracking).
+ */
+export function parseTeamLabelsFromTitle(
+  title: string | undefined,
+  league: DiscoveredGamesLeague,
+): { home: string | null, away: string | null } {
   if (!title) {
     return { home: null, away: null }
   }
-
-  // Match "X vs Y" / "X vs. Y" / "X v Y" / "X v. Y". Team-name captures end
-  // in `\S` and the separator starts with `\s+v` to keep the regex
-  // unambiguous (no super-linear backtracking — eslint regexp/no-super-
-  // linear-backtracking).
   const match = title.match(/^(.+\S)\s+vs?\.?\s+(\S.*)$/i)
   if (!match) {
     return { home: null, away: null }
   }
-
-  const away = match[1].trim()
-  const home = match[2].trim()
-  return { home: home || null, away: away || null }
+  const first = match[1].trim()
+  const second = match[2].trim()
+  if (league.teamOrderConvention === 'away_first') {
+    return { away: first || null, home: second || null }
+  }
+  return { home: first || null, away: second || null }
 }
 
 /**
@@ -274,6 +350,13 @@ export function normalizeGamesDiscoveryPayload(
     return null
   }
 
+  const league = getLeagueBySlug(leagueSlug)
+  if (!league) {
+    // Unknown league slug — degenerate; the caller only ever passes registry
+    // slugs, but fail safe.
+    return null
+  }
+
   // gameStartTime lives at the MARKET level on Polymarket Gamma per-game
   // responses (not the event level). The moneyline market is the source-of-
   // truth for the whole game's tipoff/first-pitch — every market in a per-
@@ -292,7 +375,7 @@ export function normalizeGamesDiscoveryPayload(
     return null
   }
 
-  const teams = parseTeamLabels(event.title)
+  const teams = resolveTeamLabels(event, league)
   const gameStartTimeDate = new Date(moneyline.gameStartTime)
   if (Number.isNaN(gameStartTimeDate.getTime())) {
     return null

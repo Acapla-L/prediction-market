@@ -1,14 +1,30 @@
+import type { DiscoveredGamesLeague } from '@/lib/polymarket/games-leagues'
 import type { PolymarketEvent } from '@/lib/polymarket/types'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { getLeagueBySlug } from '@/lib/polymarket/games-leagues'
 import {
   DiscoveredGameMarketsPayloadSchema,
   mapAllMarkets,
   normalizeGamesDiscoveryPayload,
-  parseTeamLabels,
+  parseTeamLabelsFromTitle,
   pickMoneylineMarket,
+  resolveTeamLabels,
 } from '@/lib/polymarket/normalize-games-discovery-payload'
+
+// MLB registry entry — kept in sync with the production registry so the
+// `teamOrderConvention: 'away_first'` assertion below stays honest.
+const MLB_LEAGUE_FIXTURE: DiscoveredGamesLeague = getLeagueBySlug('mlb')!
+// No soccer league is in the registry yet — synthesize a `home_first` one.
+const SOCCER_LEAGUE_FIXTURE: DiscoveredGamesLeague = {
+  slug: 'laliga',
+  seriesId: '999',
+  slugPattern: /^laliga-/,
+  mainTag: 'laliga',
+  sportRouteSlug: 'soccer',
+  teamOrderConvention: 'home_first',
+}
 
 // Sample MLB event constructed to mirror Polymarket Gamma's per-game shape
 // observed in `tests/fixtures/polymarket-gamma-mlb-per-game-response.json`.
@@ -187,34 +203,140 @@ describe('pickMoneylineMarket', () => {
   })
 })
 
-describe('parseTeamLabels', () => {
-  it('parses standard "X vs. Y" format', () => {
-    expect(parseTeamLabels('Texas Rangers vs. New York Yankees')).toEqual({
+describe('parseTeamLabelsFromTitle', () => {
+  it('parses standard "X vs. Y" format (away_first)', () => {
+    expect(parseTeamLabelsFromTitle('Texas Rangers vs. New York Yankees', MLB_LEAGUE_FIXTURE)).toEqual({
       home: 'New York Yankees',
       away: 'Texas Rangers',
     })
   })
 
-  it('handles "X vs Y" without period', () => {
-    expect(parseTeamLabels('Timberwolves vs Spurs')).toEqual({
+  it('handles "X vs Y" without period (away_first)', () => {
+    expect(parseTeamLabelsFromTitle('Timberwolves vs Spurs', MLB_LEAGUE_FIXTURE)).toEqual({
       home: 'Spurs',
       away: 'Timberwolves',
     })
   })
 
-  it('handles "X v. Y"', () => {
-    expect(parseTeamLabels('Cubs v. Mets')).toEqual({
+  it('handles "X v. Y" (away_first)', () => {
+    expect(parseTeamLabelsFromTitle('Cubs v. Mets', MLB_LEAGUE_FIXTURE)).toEqual({
       home: 'Mets',
       away: 'Cubs',
     })
   })
 
   it('returns null/null for undefined title', () => {
-    expect(parseTeamLabels(undefined)).toEqual({ home: null, away: null })
+    expect(parseTeamLabelsFromTitle(undefined, MLB_LEAGUE_FIXTURE)).toEqual({ home: null, away: null })
   })
 
   it('returns null/null for non-matching title', () => {
-    expect(parseTeamLabels('MLB World Series Champion 2026')).toEqual({ home: null, away: null })
+    expect(parseTeamLabelsFromTitle('MLB World Series Champion 2026', MLB_LEAGUE_FIXTURE)).toEqual({ home: null, away: null })
+  })
+
+  it('uses home_first ordering for soccer leagues', () => {
+    expect(parseTeamLabelsFromTitle('Levante UD vs CA Osasuna', SOCCER_LEAGUE_FIXTURE)).toEqual({
+      home: 'Levante UD',
+      away: 'CA Osasuna',
+    })
+  })
+})
+
+describe('resolveTeamLabels', () => {
+  function baseEvent(overrides: Partial<PolymarketEvent> = {}): PolymarketEvent {
+    return { slug: 'mlb-aaa-bbb-2026-05-05', markets: [], title: 'X vs Y', ...overrides }
+  }
+
+  it('tier 1 — teams[] with away_first convention', () => {
+    const event = baseEvent({ teams: [{ name: 'Away Team' }, { name: 'Home Team' }] })
+    expect(resolveTeamLabels(event, MLB_LEAGUE_FIXTURE)).toEqual({ away: 'Away Team', home: 'Home Team' })
+  })
+
+  it('tier 1 — teams[] with home_first convention', () => {
+    const event = baseEvent({ teams: [{ name: 'Away Team' }, { name: 'Home Team' }] })
+    expect(resolveTeamLabels(event, SOCCER_LEAGUE_FIXTURE)).toEqual({ home: 'Away Team', away: 'Home Team' })
+  })
+
+  it('tier 1 skipped on wrong length — falls to Tier 2 and warns', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const event = baseEvent({ teams: [{ name: 'Only One' }], homeTeam: 'H', awayTeam: 'A' })
+    expect(resolveTeamLabels(event, MLB_LEAGUE_FIXTURE)).toEqual({ home: 'H', away: 'A' })
+    expect(warnSpy).toHaveBeenCalledWith(
+      'resolveTeamLabels teams[] present but length != 2',
+      expect.objectContaining({ teamsLength: 1 }),
+    )
+    warnSpy.mockRestore()
+  })
+
+  it('tier 1 skipped on empty array — falls to Tier 3 title parse (the MLS-empirical case)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const event = baseEvent({ teams: [], title: 'Levante UD vs CA Osasuna', homeTeam: undefined, awayTeam: undefined })
+    expect(resolveTeamLabels(event, SOCCER_LEAGUE_FIXTURE)).toEqual({ home: 'Levante UD', away: 'CA Osasuna' })
+    expect(warnSpy).toHaveBeenCalledWith(
+      'resolveTeamLabels teams[] present but length != 2',
+      expect.objectContaining({ teamsLength: 0 }),
+    )
+    warnSpy.mockRestore()
+  })
+
+  it('tier 2 — homeTeam/awayTeam when no teams[]', () => {
+    const event = baseEvent({ title: 'whatever', homeTeam: 'Home X', awayTeam: 'Away Y' })
+    expect(resolveTeamLabels(event, MLB_LEAGUE_FIXTURE)).toEqual({ home: 'Home X', away: 'Away Y' })
+  })
+
+  it('tier 3 — title regex when no teams[] and no homeTeam/awayTeam', () => {
+    const event = baseEvent({ title: 'Cubs vs Mets' })
+    expect(resolveTeamLabels(event, MLB_LEAGUE_FIXTURE)).toEqual({ away: 'Cubs', home: 'Mets' })
+  })
+
+  it('returns null/null when no title, no teams, no fields', () => {
+    expect(resolveTeamLabels({ slug: 'x', markets: [] }, MLB_LEAGUE_FIXTURE)).toEqual({ home: null, away: null })
+  })
+})
+
+describe('la Liga fixture-driven resolveTeamLabels', () => {
+  const fixturePath = resolve(__dirname, '../fixtures/polymarket-gamma-laliga-per-game-response.json')
+  const fixtureRaw = JSON.parse(readFileSync(fixturePath, 'utf-8')) as Array<{
+    slug: string
+    title?: string
+    teams?: Array<{ name: string, abbreviation?: string | null }>
+  }>
+  const fixtureEvent = fixtureRaw.find(e => Array.isArray(e.teams) && e.teams.length === 2)
+
+  it('fixture contains at least one length-2 teams[] event', () => {
+    expect(fixtureEvent).toBeDefined()
+  })
+
+  it('tier 1 — resolves home/away from fixture teams[] with home_first', () => {
+    const ev = fixtureEvent!
+    const event: PolymarketEvent = { slug: ev.slug, markets: [], title: ev.title, teams: ev.teams }
+    expect(resolveTeamLabels(event, SOCCER_LEAGUE_FIXTURE)).toEqual({
+      home: ev.teams![0].name,
+      away: ev.teams![1].name,
+    })
+  })
+
+  it('tier 1 still works when teams[0].abbreviation is null (only .name is read)', () => {
+    const ev = fixtureEvent!
+    const teamsWithNullAbbrev = [
+      { ...ev.teams![0], abbreviation: null },
+      { ...ev.teams![1] },
+    ]
+    const event: PolymarketEvent = { slug: ev.slug, markets: [], title: ev.title, teams: teamsWithNullAbbrev }
+    expect(resolveTeamLabels(event, SOCCER_LEAGUE_FIXTURE)).toEqual({
+      home: ev.teams![0].name,
+      away: ev.teams![1].name,
+    })
+  })
+
+  it('empty teams[] on a soccer-shaped event falls to Tier 3 + warns', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const event: PolymarketEvent = { slug: 'laliga-rma-fcb-2026-05-05', markets: [], title: 'Real Madrid vs Barcelona', teams: [] }
+    expect(resolveTeamLabels(event, SOCCER_LEAGUE_FIXTURE)).toEqual({ home: 'Real Madrid', away: 'Barcelona' })
+    expect(warnSpy).toHaveBeenCalledWith(
+      'resolveTeamLabels teams[] present but length != 2',
+      expect.objectContaining({ teamsLength: 0 }),
+    )
+    warnSpy.mockRestore()
   })
 })
 
@@ -659,9 +781,11 @@ describe('discoveredGameMarketsPayloadSchema — back-compat (Adjustment 3 drift
     expect(parsed.data.markets[1].line).toBe(8.5)
   })
 
-  it('rejects payload with invalid market_type enum value', () => {
-    // Sanity: the enum is enforced — typo in market_type would fail.
-    const badPayload = {
+  it('accepts and passes through unknown market_type values (open set)', () => {
+    // Fix 1 (2026-05-11): `market_type` was relaxed from z.enum() to z.string()
+    // because Polymarket emits new section types without notice. An unknown
+    // value must parse cleanly and be persisted unchanged.
+    const payload = {
       event_created_at: '2026-04-29T13:00:18.813855Z',
       game_start_time: '2026-05-05 23:05:00+00',
       markets: [
@@ -669,7 +793,7 @@ describe('discoveredGameMarketsPayloadSchema — back-compat (Adjustment 3 drift
           polymarket_market_id: 'm1',
           slug: 'slug-1',
           question: 'Q',
-          market_type: 'unknown_type', // not in enum
+          market_type: 'unknown_type', // open set — accepted
           line: null,
           outcomes: ['Yes', 'No'] as [string, string],
           outcome_prices: ['0.5', '0.5'] as [string, string],
@@ -681,7 +805,12 @@ describe('discoveredGameMarketsPayloadSchema — back-compat (Adjustment 3 drift
         },
       ],
     }
-    expect(DiscoveredGameMarketsPayloadSchema.safeParse(badPayload).success).toBe(false)
+    const parsed = DiscoveredGameMarketsPayloadSchema.safeParse(payload)
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) {
+      return
+    }
+    expect(parsed.data.markets[0].market_type).toBe('unknown_type')
   })
 })
 
@@ -751,11 +880,12 @@ describe('discoveredGameMarketsPayloadSchema — NBA enum extension (Phase B v2 
     }
   })
 
-  it('rejects payload with player-prop market_type values (NOT in persisted enum)', () => {
-    // The persisted-payload schema enum does NOT include `points`, `rebounds`,
-    // or `assists`. Production `mapAllMarkets` filters those out BEFORE
-    // persist. If a future regression accidentally widened the enum to include
-    // them, that would be a contract bug — this test detects it.
+  it('schema-level accepts player-prop market_type (open set); filtering is mapAllMarkets job', () => {
+    // Fix 1 (2026-05-11): `market_type` is now `z.string()` — the persisted
+    // schema accepts any string, including `points`/`rebounds`/`assists`. The
+    // layer that drops player-prop markets is `mapAllMarkets` (filtered BEFORE
+    // persist), not the schema. This test pins the post-relaxation contract:
+    // a raw payload carrying `points` parses cleanly and round-trips unchanged.
     const payload = {
       event_created_at: '2026-04-29T13:00:21.939504Z',
       game_start_time: '2026-05-06 22:30:00+00',
@@ -764,7 +894,7 @@ describe('discoveredGameMarketsPayloadSchema — NBA enum extension (Phase B v2 
           polymarket_market_id: 'pts-1',
           slug: 'nba-bos-lal-2026-05-06-points-x-25pt5',
           question: 'Points X 25.5',
-          market_type: 'points', // not in persisted enum
+          market_type: 'points',
           line: 25.5,
           outcomes: ['Over', 'Under'] as [string, string],
           outcome_prices: ['0.5', '0.5'] as [string, string],
@@ -776,7 +906,11 @@ describe('discoveredGameMarketsPayloadSchema — NBA enum extension (Phase B v2 
         },
       ],
     }
-    expect(DiscoveredGameMarketsPayloadSchema.safeParse(payload).success).toBe(false)
+    const parsed = DiscoveredGameMarketsPayloadSchema.safeParse(payload)
+    expect(parsed.success).toBe(true)
+    if (parsed.success) {
+      expect(parsed.data.markets[0].market_type).toBe('points')
+    }
   })
 })
 
@@ -994,6 +1128,76 @@ describe('mapAllMarkets — NBA player-prop filter (Phase B v2 v2)', () => {
       expect(entries).toHaveLength(1)
       expect(entries[0]!.market_type).toBe('moneyline') // defaulted
       expect(warnSpy).toHaveBeenCalled()
+    }
+    finally {
+      warnSpy.mockRestore()
+    }
+  })
+})
+
+// ---- Fix 1 (2026-05-11): open-set sportsMarketType observability -----------
+
+describe('mapAllMarkets — unknown sportsMarketType (open set, Fix 1)', () => {
+  function buildEventWithType(sportsMarketType: string): PolymarketEvent {
+    return {
+      slug: 'soccer-abc-xyz-2026-05-11',
+      id: '777001',
+      title: 'ABC vs. XYZ',
+      endDate: null,
+      createdAt: '2026-05-01T10:00:00Z',
+      negRisk: false,
+      enableNegRisk: false,
+      markets: [
+        {
+          id: 'm-1',
+          conditionId: '0x1',
+          groupItemTitle: 'Section',
+          active: true,
+          closed: false,
+          outcomes: ['ABC', 'XYZ'],
+          outcomePrices: [0.5, 0.5],
+          clobTokenIds: ['t1', 't2'],
+          bestBid: null,
+          bestAsk: null,
+          lastTradePrice: null,
+          volume: 100,
+          volume24hr: null,
+          slug: 'soccer-abc-xyz-2026-05-11-section',
+          iconUrl: null,
+          gameStartTime: '2026-05-11 18:00:00+00',
+          sportsMarketType,
+          line: null,
+        },
+      ],
+    }
+  }
+
+  it('passes an unknown sportsMarketType through unchanged and warns', () => {
+    const event = buildEventWithType('asian_handicap')
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const entries = mapAllMarkets(event)
+      expect(entries).toHaveLength(1)
+      // Raw passthrough — no remap, no default-coerce.
+      expect(entries[0]!.market_type).toBe('asian_handicap')
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[polymarket] unknown sportsMarketType',
+        expect.objectContaining({ value: 'asian_handicap' }),
+      )
+    }
+    finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('does not warn for a known sportsMarketType and passes it through', () => {
+    const event = buildEventWithType('totals')
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const entries = mapAllMarkets(event)
+      expect(entries).toHaveLength(1)
+      expect(entries[0]!.market_type).toBe('totals')
+      expect(warnSpy).not.toHaveBeenCalled()
     }
     finally {
       warnSpy.mockRestore()

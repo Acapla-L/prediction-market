@@ -3,7 +3,7 @@ import { connection, NextResponse } from 'next/server'
 import { isCronAuthorized } from '@/lib/auth-cron'
 import { cacheTags } from '@/lib/cache-tags'
 import { DiscoveredGamesRepository } from '@/lib/db/queries/discovered-games'
-import { fetchPolymarketGammaEventsBySeries } from '@/lib/polymarket/client'
+import { fetchPolymarketGammaEventsBySeriesPaged } from '@/lib/polymarket/client'
 import { DISCOVERED_GAMES_LEAGUES, getLeagueBySlug } from '@/lib/polymarket/games-leagues'
 import {
   normalizeGamesDiscoveryPayload,
@@ -40,7 +40,8 @@ const ARCHIVE_CUTOFF_MS = 24 * 60 * 60 * 1000
  *
  * Per-league discovery sync (Phase B). Triggered hourly by pg_cron at :13.
  * For each enabled league:
- *   1. Polls `GET /events?series_id=<N>&active=true&closed=false&limit=50`
+ *   1. Polls `GET /events?series_id=<N>&active=true&closed=false` with
+ *      limit=50 offset-paginated until a short page (fewer than 50 rows)
  *   2. Normalizes each per-game event to the per-game payload shape
  *   3. Upserts the row into `discovered_polymarket_games`
  *   4. Calls `revalidateTag(discoveredGame(slug))` + `revalidatePath` per ok
@@ -78,7 +79,7 @@ async function handleGamesDiscoverySync(request: Request): Promise<NextResponse<
   for (const league of DISCOVERED_GAMES_LEAGUES) {
     let events: readonly import('@/lib/polymarket/types').PolymarketEvent[] | null
     try {
-      events = await fetchPolymarketGammaEventsBySeries(league.seriesId)
+      events = await fetchPolymarketGammaEventsBySeriesPaged(league.seriesId)
     }
     catch (err) {
       const message = err instanceof Error ? err.message : 'unknown'
@@ -96,7 +97,7 @@ async function handleGamesDiscoverySync(request: Request): Promise<NextResponse<
         slug: `<league:${league.slug}>`,
         league: league.slug,
         status: 'network_error',
-        error: 'fetchPolymarketGammaEventsBySeries returned null (transport or schema failure)',
+        error: 'fetchPolymarketGammaEventsBySeriesPaged returned null (transport or schema failure)',
       })
       continue
     }

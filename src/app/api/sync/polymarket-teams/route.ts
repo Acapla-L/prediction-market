@@ -54,26 +54,51 @@ const TeamsResponseSchema = z.array(TeamSchema)
  * placeholders "American" / "National" alongside the 30 real teams). These are
  * NOT real teams and must NOT be persisted to `teams_cache` — the projection
  * layer parses team abbreviations from per-game slugs and would never match
- * these. Conservative filter: skip if the abbreviation matches a known
- * league-level placeholder (sourced from the league registry's
- * `placeholderAbbreviations` field) OR the name contains "All-Star".
+ * these. Three layered tiers, evaluated in order:
  *
- * Source-of-truth migration (Phase B v2 v2): the per-league placeholder Set
- * lives in `src/lib/polymarket/games-leagues.ts` (`DiscoveredGamesLeague.
- * placeholderAbbreviations`), not here. Adding a league: populate that field
- * on the registry entry. The route reads it per-league below.
+ *   Tier 1 (authoritative): the abbreviation matches a known league-level
+ *     placeholder, sourced from the league registry's `placeholderAbbreviations`
+ *     field (`src/lib/polymarket/games-leagues.ts`). Source-of-truth migration
+ *     (Phase B v2 v2): the per-league Set lives on the registry entry, not here.
+ *   Tier 2 (always-on belt-and-suspenders): the team name contains the literal
+ *     "all-star" substring — catches abbreviations we haven't yet enumerated.
+ *   Tier 3 (opt-in heuristic): both `logo` and `color` are null. Per Polymarket
+ *     support, placeholder rosters consistently ship with both null — but so do
+ *     some real teams (FIFA WC Switzerland, WNBA expansion teams), so this tier
+ *     is OPT-IN per-league via `DiscoveredGamesLeague.applyLogoColorPlaceholderHeuristic`.
+ *
+ * Adding a league: populate `placeholderAbbreviations` on the registry entry;
+ * set `applyLogoColorPlaceholderHeuristic: true` only if the league has rotating
+ * all-star / international rosters that may introduce new placeholder variants.
  */
 function isLeaguePlaceholder(
   team: z.infer<typeof TeamSchema>,
   league: DiscoveredGamesLeague,
 ): boolean {
-  const placeholders = league.placeholderAbbreviations ?? new Set<string>()
-  if (placeholders.has(team.abbreviation.toLowerCase())) {
+  const abbr = team.abbreviation.toLowerCase()
+
+  // Tier 1 (authoritative): explicit per-league Set. Workstream-1 caught
+  // all-star/exhibition rosters via this mechanism in Phase B v2 v2.
+  if (league.placeholderAbbreviations?.has(abbr)) {
     return true
   }
+
+  // Tier 2 (always-on belt-and-suspenders): name-pattern match. Catches
+  // rosters whose abbreviation we haven't yet enumerated but whose name
+  // string contains the standard "All-Star" tell.
   if (team.name.toLowerCase().includes('all-star')) {
     return true
   }
+
+  // Tier 3 (opt-in heuristic): logo+color absence. Per Polymarket support,
+  // placeholder rosters consistently ship with both null. Per the empirical
+  // §Investigate.E probe, real teams in FIFA WC (Switzerland) and WNBA
+  // (expansion teams) ALSO ship with both null — the heuristic is therefore
+  // OPT-IN per-league via `applyLogoColorPlaceholderHeuristic`. Default off.
+  if (league.applyLogoColorPlaceholderHeuristic && team.logo == null && team.color == null) {
+    return true
+  }
+
   return false
 }
 
