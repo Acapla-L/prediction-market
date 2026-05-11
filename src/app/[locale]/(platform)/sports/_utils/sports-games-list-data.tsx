@@ -11,6 +11,7 @@ import { cacheTags } from '@/lib/cache-tags'
 import { EventRepository } from '@/lib/db/queries/event'
 import { SportsMenuRepository } from '@/lib/db/queries/sports-menu'
 import { getLeagueBySlug, getLeagueBySportRouteSlug } from '@/lib/polymarket/games-leagues'
+import { KNOWN_SPORT_ROUTE_SLUGS } from '@/lib/polymarket/sports-route-allowlist'
 import { loadDiscoveredGameSportsCardsByLeague } from '@/lib/polymarket/synthesize-sports-card'
 import { STATIC_PARAMS_PLACEHOLDER } from '@/lib/static-params'
 import { loadRuntimeThemeState } from '@/lib/theme-settings'
@@ -163,6 +164,14 @@ export async function generateSportsGamesListMetadata({
     notFound()
   }
 
+  // Fix A5 — short-circuit unknown sport-slug URLs BEFORE entering the
+  // `'use cache'` boundary. Prevents bot crawls of ~130 nonexistent slugs
+  // from cold-filling the Supavisor :6543 transaction pool. The check
+  // MUST be OUTSIDE the cache boundary (Next.js 16 Cache Components rule).
+  if (!KNOWN_SPORT_ROUTE_SLUGS.has(sport)) {
+    notFound()
+  }
+
   const resolvedLocale = locale as SupportedLocale
   const [runtimeTheme, listData] = await Promise.all([
     loadRuntimeThemeState(),
@@ -203,6 +212,11 @@ export async function renderSportsGamesListPage({
   setRequestLocale(locale)
 
   if (sport === STATIC_PARAMS_PLACEHOLDER) {
+    notFound()
+  }
+
+  // Fix A5 — see note in generateSportsGamesListMetadata above.
+  if (!KNOWN_SPORT_ROUTE_SLUGS.has(sport)) {
     notFound()
   }
 

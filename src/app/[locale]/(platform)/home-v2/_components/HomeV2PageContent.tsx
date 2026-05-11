@@ -49,11 +49,30 @@ export default async function HomeV2PageContent({ locale }: HomeV2PageContentPro
   cacheTag(cacheTags.eventsList)
 
   const t = await getExtracted()
-  const [featuredFutures, sidebarData, ...sections] = await Promise.all([
+
+  // Fix A2 (connection-pool hardening 2026-05-11):
+  //   - Phase 1: featured-futures + sidebar in parallel — both lightweight
+  //     (futures = 1 DB + ~12 Polymarket HTTP, sidebar = 2 sequential DB
+  //     queries; peak ~2 simultaneous Supavisor checkouts).
+  //   - Phase 2: sport sections SEQUENTIALLY via `for...of` (was a top-level
+  //     `Promise.all` of N sections). Combined with A1's batched team-cache
+  //     lookups (each section now = 2 simultaneous checkouts max), this caps
+  //     the home-v2 cold-render peak at ~2 simultaneous pooler connections
+  //     across the entire page render — regardless of league count. Pre-A1/A2,
+  //     7 league sections × inner `Promise.all` of 8 per-row team lookups =
+  //     ~58 simultaneous checkouts per cold render → 200-cap Supavisor
+  //     saturation at ~4 concurrent renders (the 2026-05-11 EMAXCONN cascade).
+  //   - Trade-off: cold-render latency grows linearly with section count
+  //     (~each section's fill time). Acceptable because the result is
+  //     `'use cache'`-tagged so warm renders are unchanged.
+  const [featuredFutures, sidebarData] = await Promise.all([
     fetchFeaturedFuturesData(locale),
     fetchSidebarData(locale),
-    ...HOME_V2_CATEGORIES.map(c => resolveSection(c, locale)),
   ])
+  const sections: ResolvedSection[] = []
+  for (const c of HOME_V2_CATEGORIES) {
+    sections.push(await resolveSection(c, locale))
+  }
 
   const currentTimestamp = getServerCurrentTimestamp()
 

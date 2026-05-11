@@ -97,6 +97,16 @@ function resolvePredictionResultsRewrite({
 export default async function proxy(request: NextRequest) {
   const url = new URL(request.url)
 
+  // Fast 404 for /.well-known/* probes (Farcaster, apple-app-site-association,
+  // change-password, assetlinks, security.txt, etc.) so crawler hits don't
+  // trigger the DB-backed layout render. The static public/.well-known/*
+  // files (currently just farcaster.json) are served by Vercel before this
+  // proxy runs, so reaching here means the request is for a path we don't
+  // intentionally expose — return a cheap 404 with no DB hit.
+  if (url.pathname.startsWith('/.well-known/')) {
+    return new NextResponse(null, { status: 404 })
+  }
+
   const isAccessGatePath = url.pathname === '/access' || url.pathname.startsWith('/access/')
 
   if (isAccessGatePath) {
@@ -171,6 +181,7 @@ export default async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     '/((?!api|trpc|_next|_vercel|.*\\..*).*)',
+    '/.well-known/:path*',
     '/docs.mdx',
     '/docs/:path*.mdx',
     '/:locale/docs.mdx',

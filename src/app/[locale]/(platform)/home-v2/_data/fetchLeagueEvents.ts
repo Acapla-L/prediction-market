@@ -1,6 +1,7 @@
 'use cache'
 
 import type { HomeV2LeagueSectionConfig } from '@/app/[locale]/(platform)/home-v2/_config/categories'
+import type { TeamCacheRow } from '@/lib/db/queries/teams-cache'
 import type { SupportedLocale } from '@/i18n/locales'
 import type { Event } from '@/types'
 import { cacheTag } from 'next/cache'
@@ -55,6 +56,31 @@ function parsePayload(serialized: string) {
   return parsed.success ? parsed.data : null
 }
 
+function buildTeamObject(
+  row: TeamCacheRow | undefined,
+  abbreviation: string,
+  hostStatus: 'home' | 'away',
+) {
+  if (row) {
+    return {
+      name: row.name,
+      abbreviation: row.abbreviation,
+      record: row.record,
+      color: row.color,
+      logoUrl: row.logoUrl,
+      hostStatus,
+    }
+  }
+  return {
+    name: abbreviation.toUpperCase(),
+    abbreviation,
+    record: null,
+    color: null,
+    logoUrl: null,
+    hostStatus,
+  }
+}
+
 /**
  * Fetch the top N upcoming games for one league section as `Event[]`.
  *
@@ -65,8 +91,16 @@ function parsePayload(serialized: string) {
  *   - The DB lookup errors or yields zero rows
  *
  * Otherwise: fetches up to `LEAGUE_GRID_SIZE` upcoming rows from
- * `discovered_polymarket_games`, parses each `markets_payload`, looks up
- * home/away from `teams_cache`, and projects via `buildSyntheticEvent`.
+ * `discovered_polymarket_games` AND the full `teams_cache` for the league
+ * in ONE concurrent `Promise.all` (2 DB round-trips, 2 simultaneous pooler
+ * checkouts), then builds an in-memory abbreviation → team map and does O(n)
+ * lookups during row iteration — NO per-row DB calls.
+ *
+ * Performance contract (Fix A1, 2026-05-11):
+ *   - Per league section: 2 DB queries, peak 2 simultaneous pooler checkouts
+ *     (down from 1 + 2N = 9 queries / 8 peak for LEAGUE_GRID_SIZE=4 prior).
+ *   - Matches the batched pattern of `loadDiscoveredGameSportsCardsByLeague`
+ *     (the list-route helper) — drift-locked by the test below.
  *
  * Cache tags:
  *   - `discoveredGamesList(league)` — busted by the games-discovery sync
@@ -92,81 +126,56 @@ export async function fetchLeagueEvents(
   cacheTag(cacheTags.discoveredGamesList(config.leagueSlug))
   cacheTag(cacheTags.teamsCache(config.leagueSlug))
 
-  const { data: rows, error } = await DiscoveredGamesRepository.listUpcomingByLeague(
-    config.leagueSlug,
-    LEAGUE_GRID_SIZE,
-    new Date(),
-  )
-  if (error || !rows || rows.length === 0) {
+  // Batched fetch — one round-trip for rows, one for teams (2 simultaneous
+  // pooler checkouts, peak). Replaces the prior per-row N+1 fan-out
+  // (`Promise.all(rows.map(...Promise.all([getByAbbreviation(home), getByAbbreviation(away)])))`)
+  // which checked out 1 + 2*LEAGUE_GRID_SIZE pooler connections per league
+  // and was the dominant amplifier in the 2026-05-11 EMAXCONN incident.
+  const [{ data: rows, error: rowsError }, { data: teams }] = await Promise.all([
+    DiscoveredGamesRepository.listUpcomingByLeague(
+      config.leagueSlug,
+      LEAGUE_GRID_SIZE,
+      new Date(),
+    ),
+    TeamsCacheRepository.listByLeague(config.leagueSlug),
+  ])
+
+  if (rowsError || !rows || rows.length === 0) {
     return { config, events: [] }
   }
 
-  const events = await Promise.all(
-    rows.map(async (row): Promise<Event | null> => {
-      const parsedSlug = parseSlugTeams(row.slug)
-      if (!parsedSlug) {
-        return null
-      }
-      const payload = parsePayload(row.marketsPayload)
-      if (!payload) {
-        return null
-      }
-      if (payload.markets.length === 0) {
-        return null
-      }
-
-      const [{ data: homeRow }, { data: awayRow }] = await Promise.all([
-        TeamsCacheRepository.getByAbbreviation(row.league, parsedSlug.homeAbbr),
-        TeamsCacheRepository.getByAbbreviation(row.league, parsedSlug.awayAbbr),
-      ])
-
-      const homeTeam = homeRow
-        ? {
-            name: homeRow.name,
-            abbreviation: homeRow.abbreviation,
-            record: homeRow.record,
-            color: homeRow.color,
-            logoUrl: homeRow.logoUrl,
-            hostStatus: 'home' as const,
-          }
-        : {
-            name: parsedSlug.homeAbbr.toUpperCase(),
-            abbreviation: parsedSlug.homeAbbr,
-            record: null,
-            color: null,
-            logoUrl: null,
-            hostStatus: 'home' as const,
-          }
-
-      const awayTeam = awayRow
-        ? {
-            name: awayRow.name,
-            abbreviation: awayRow.abbreviation,
-            record: awayRow.record,
-            color: awayRow.color,
-            logoUrl: awayRow.logoUrl,
-            hostStatus: 'away' as const,
-          }
-        : {
-            name: parsedSlug.awayAbbr.toUpperCase(),
-            abbreviation: parsedSlug.awayAbbr,
-            record: null,
-            color: null,
-            logoUrl: null,
-            hostStatus: 'away' as const,
-          }
-
-      try {
-        return buildSyntheticEvent(row, payload, homeTeam, awayTeam, leagueEntry.sportRouteSlug)
-      }
-      catch {
-        return null
-      }
-    }),
-  )
-
-  return {
-    config,
-    events: events.filter((e): e is Event => e !== null),
+  // O(n) map build — keyed by abbreviation (the value parsed out of the
+  // per-game slug). `teams` may be null on transient DB error from
+  // `listByLeague`; in that case every lookup falls through to the
+  // abbreviation-only fallback in `buildTeamObject`, matching the prior
+  // per-row error path.
+  const teamMap = new Map<string, TeamCacheRow>()
+  for (const team of teams ?? []) {
+    teamMap.set(team.abbreviation, team)
   }
+
+  const events: Event[] = []
+  for (const row of rows) {
+    const parsedSlug = parseSlugTeams(row.slug)
+    if (!parsedSlug) {
+      continue
+    }
+    const payload = parsePayload(row.marketsPayload)
+    if (!payload || payload.markets.length === 0) {
+      continue
+    }
+
+    const homeTeam = buildTeamObject(teamMap.get(parsedSlug.homeAbbr), parsedSlug.homeAbbr, 'home')
+    const awayTeam = buildTeamObject(teamMap.get(parsedSlug.awayAbbr), parsedSlug.awayAbbr, 'away')
+
+    try {
+      const event = buildSyntheticEvent(row, payload, homeTeam, awayTeam, leagueEntry.sportRouteSlug)
+      events.push(event)
+    }
+    catch {
+      // Drop the row silently — same behavior as the prior per-row try/catch.
+    }
+  }
+
+  return { config, events }
 }
