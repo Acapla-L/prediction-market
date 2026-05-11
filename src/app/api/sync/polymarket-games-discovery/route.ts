@@ -217,12 +217,11 @@ async function handleGamesDiscoverySync(request: Request): Promise<NextResponse<
   if (successfulSlugs.length > 0) {
     revalidateTag(cacheTags.discoveredGamesSidebar, 'max')
     revalidateTag(cacheTags.eventsList, 'max')
-    // home-v2 sport sections (incl. the soccer multi-league shelf and the
-    // FIFA WC shelf) are sync-driven content — bust the homepage edge HTML so
-    // a freshly-discovered league's section appears within seconds, not within
-    // the default revalidation window.
-    revalidatePath('/')
-    revalidatePath('/en')
+    // NOTE: removed `revalidatePath('/')` + `revalidatePath('/en')` (was added in
+    // 324eb8ce) for consistency with the games-refresh route — the `eventsList`
+    // tag bust above already forces the home-v2 sections to re-render on the next
+    // homepage request, without busting the whole `/` full-route cache. See the
+    // P0 incident note in polymarket-games-refresh/route.ts.
   }
 
   return NextResponse.json({

@@ -11,6 +11,10 @@ import {
   serializeDiscoveryPayload,
 } from '@/lib/polymarket/normalize-discovery-payload'
 
+// Long-running cron sync — match the other Phase A/B sync routes' ceiling.
+// (504'd on the default ~10s limit during the 2026-05-11 incident.)
+export const maxDuration = 300
+
 interface SlugSyncResult {
   slug: string
   status: 'ok' | 'gamma_404' | 'parse_error' | 'network_error' | 'upsert_error'

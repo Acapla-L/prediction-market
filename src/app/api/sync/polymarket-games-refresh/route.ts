@@ -187,12 +187,12 @@ async function handleGamesRefreshSync(request: Request): Promise<NextResponse<Re
       revalidatePath(`/en/sports/${league.slug}/games`)
     }
   }
-  if (touchedLeagues.size > 0) {
-    // home-v2 sport sections render the refreshed prices/lifecycle flags too —
-    // bust the homepage edge HTML so the shelves stay current.
-    revalidatePath('/')
-    revalidatePath('/en')
-  }
+  // NOTE: removed `revalidatePath('/')` + `revalidatePath('/en')` (was added in
+  // 324eb8ce). On this every-5-min cron it busted the homepage full-route cache
+  // continuously, forcing a heavy cold re-render against Supabase that exhausted
+  // the connection pool (P0 incident 2026-05-11). The per-league
+  // `revalidateTag(discoveredGamesList(...))` calls above already propagate fresh
+  // prices/lifecycle flags to the home-v2 sport shelves within seconds.
 
   return NextResponse.json({
     ok: true,
