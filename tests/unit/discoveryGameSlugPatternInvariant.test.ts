@@ -72,6 +72,19 @@ describe('client-inline per-game slug patterns match server-side league registry
       ).toBe(1)
     })
   })
+
+  it('the 4 Phase B v2 v3 soccer patterns appear in BOTH the registry and the inline mirror', () => {
+    const inline = extractInlinePatterns(source)
+    const SOCCER_SLUGS = ['epl', 'laliga', 'mls', 'fifwc'] as const
+    SOCCER_SLUGS.forEach((slug) => {
+      const entry = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === slug)
+      expect(entry, `soccer league ${slug} should be registered`).toBeDefined()
+      expect(
+        inline,
+        `soccer league ${slug} pattern ${entry!.slugPattern.source} should be in the inline mirror`,
+      ).toContain(entry!.slugPattern.source)
+    })
+  })
 })
 
 /**
@@ -139,6 +152,28 @@ describe('isDiscoveryGameSlug — Phase A v2 futures non-match invariant', () =>
         expect(
           league.slugPattern.test(slug),
           `slug ${slug} matched league pattern ${league.slugPattern.source} (${league.slug})`,
+        ).toBe(false)
+      })
+    })
+  })
+
+  it('the FIFA WC per-game pattern (/^fifwc-.../) does NOT match the Phase A v2 FIFA futures slug', () => {
+    // `2026-fifa-world-cup-winner-595` starts with `2026-`, not `fifwc-`, so
+    // the per-game regex cannot match it — confirmed explicitly because the
+    // names are superficially similar.
+    const fifwcEntry = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'fifwc')!
+    expect(fifwcEntry.slugPattern.test('2026-fifa-world-cup-winner-595')).toBe(false)
+    expect(fifwcEntry.slugPattern.test('fifwc-mex-rsa-2026-06-11')).toBe(true)
+
+    // None of the 4 soccer patterns match any Phase A v2 futures slug.
+    const soccerEntries = DISCOVERED_GAMES_LEAGUES.filter(l =>
+      ['epl', 'laliga', 'mls', 'fifwc'].includes(l.slug),
+    )
+    PHASE_A_V2_FUTURES_SLUGS.forEach((slug) => {
+      soccerEntries.forEach((league) => {
+        expect(
+          league.slugPattern.test(slug),
+          `slug ${slug} matched soccer league pattern ${league.slugPattern.source} (${league.slug})`,
         ).toBe(false)
       })
     })
