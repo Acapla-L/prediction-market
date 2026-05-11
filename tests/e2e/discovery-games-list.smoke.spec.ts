@@ -54,6 +54,28 @@ const LEAGUE_PROBES: ReadonlyArray<LeagueProbe> = [
     canonicalUrl: '/en/sports/nhl/games',
     aliasUrl: '/en/sports/hockey/games',
   },
+  // Phase B v2 v3 — soccer leagues (EPL / La Liga / MLS) all share the
+  // Kuest `soccer` sport route (the only working list-route entrypoint for
+  // them — there is no per-league `/sports/epl/games` Kuest alias). Sidecar
+  // rows may not exist on the first preview run until the discovery sync
+  // executes; the per-league assertion only requires HTTP 200 + no "Oops"
+  // body (matches MLB/NBA/NHL), so an empty soccer sidecar still passes —
+  // the empty-leagues guard below only requires ONE league overall to have
+  // cards (MLB will). canonicalUrl === aliasUrl here intentionally: the
+  // `soccer` route is both, so the alias-redirect test is a no-op for it.
+  {
+    league: 'soccer',
+    sportRouteSlug: 'soccer',
+    canonicalUrl: '/en/sports/soccer/games',
+    aliasUrl: '/en/sports/soccer/games',
+  },
+  // FIFA World Cup uses its own dedicated sport route.
+  {
+    league: 'fifwc',
+    sportRouteSlug: 'fifa-world-cup',
+    canonicalUrl: '/en/sports/fifa-world-cup/games',
+    aliasUrl: '/en/sports/fifa-world-cup/games',
+  },
 ]
 
 async function hashAccessCode(code: string): Promise<string> {
@@ -101,6 +123,11 @@ test.describe('Stream 2 sports list route smoke gate', () => {
       throw new Error('SMOKE_BASE_URL / baseURL required')
     }
 
+    // 5 league probes now (MLB/NBA/NHL + soccer + FIFA WC); soccer/FIFA WC
+    // list pages can be slow to cold-fill on a fresh preview deploy
+    // (Phase B v2 v1 cold-cache flakiness pattern). Give the loop a longer budget.
+    test.setTimeout(90_000)
+
     let leaguesProbed = 0
     let leaguesWithCards = 0
 
@@ -143,7 +170,7 @@ test.describe('Stream 2 sports list route smoke gate', () => {
           const anchors = Array.from(document.querySelectorAll('a[href]'))
           return anchors.filter((a) => {
             const href = a.getAttribute('href') ?? ''
-            return /\/sports\/[a-z0-9-]+\/(?:mlb|nba|nhl)-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}/.test(href)
+            return /\/sports\/[a-z0-9-]+\/(?:mlb|nba|nhl|epl|lal|mls|fifwc)-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}/.test(href)
           }).length
         })
 
