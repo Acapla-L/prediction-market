@@ -10,6 +10,9 @@ import {
   serializeGamesDiscoveryPayload,
 } from '@/lib/polymarket/normalize-games-discovery-payload'
 
+// Long-running cron sync — match the legacy Kuest sync routes' ceiling.
+export const maxDuration = 300
+
 interface RefreshSyncResult {
   slug: string
   status: 'ok' | 'gamma_404' | 'normalize_skipped' | 'upsert_error' | 'network_error' | 'unknown_league'

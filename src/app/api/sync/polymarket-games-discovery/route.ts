@@ -10,6 +10,9 @@ import {
   serializeGamesDiscoveryPayload,
 } from '@/lib/polymarket/normalize-games-discovery-payload'
 
+// Long-running cron sync — match the legacy Kuest sync routes' ceiling.
+export const maxDuration = 300
+
 interface SlugSyncResult {
   slug: string
   league: string
