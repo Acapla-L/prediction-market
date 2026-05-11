@@ -12,17 +12,19 @@
  *                 `discovered_polymarket_games`. New fetcher
  *                 (`fetchLeagueEvents`) handles this kind.
  *
- * Soccer is reserved as a `placeholder: true` league section — Phase B v2 v3
- * will populate the sidecar; until then the fetcher returns an empty array
- * and the section renders as `null`.
+ * Soccer is a multi-league section (Phase B v2 v3): it merges EPL + La Liga +
+ * MLS discovery cards via `sportRouteSlug: 'soccer'` rather than a single
+ * `leagueSlug`. FIFA World Cup gets its own single-league section
+ * (`leagueSlug: 'fifwc'`). Both render `null` until the discovery sidecar
+ * populates.
  *
  * Section IDs double as anchor targets: `/home-v2#basketball` will scroll to
- * the basketball section. Step 4 wires the nav tabs that depend on these IDs.
+ * the basketball section.
  */
 
 import type { DiscoveredGamesLeagueSlug } from '@/lib/polymarket/games-leagues'
 
-export type HomeV2SectionId = 'baseball' | 'basketball' | 'hockey' | 'soccer'
+export type HomeV2SectionId = 'baseball' | 'basketball' | 'hockey' | 'soccer' | 'fifa-world-cup'
 
 export interface HomeV2TagSectionConfig {
   kind: 'tag'
@@ -34,18 +36,24 @@ export interface HomeV2TagSectionConfig {
 
 export interface HomeV2LeagueSectionConfig {
   kind: 'league'
-  id: 'baseball' | 'basketball' | 'hockey' | 'soccer'
+  id: 'baseball' | 'basketball' | 'hockey' | 'soccer' | 'fifa-world-cup'
   /**
-   * League slug from `DISCOVERED_GAMES_LEAGUES` registry. Optional — Soccer
-   * has no sidecar coverage yet (Phase B v2 v3 follow-up); when absent the
-   * section MUST also set `placeholder: true` and the fetcher returns `[]`.
+   * Single league slug from `DISCOVERED_GAMES_LEAGUES` registry. Use this for
+   * one-league sections (baseball/basketball/hockey/fifa-world-cup). Mutually
+   * exclusive with `sportRouteSlug`.
    */
   leagueSlug?: DiscoveredGamesLeagueSlug
-  titleKey: 'Baseball' | 'Basketball' | 'Hockey' | 'Soccer'
+  /**
+   * Sport-route alias from the registry (`sportRouteSlug` field). When set,
+   * the fetcher merges ALL leagues sharing this alias — e.g. `'soccer'`
+   * merges EPL + La Liga + MLS. Mutually exclusive with `leagueSlug`.
+   */
+  sportRouteSlug?: string
+  titleKey: 'Baseball' | 'Basketball' | 'Hockey' | 'Soccer' | 'FIFA World Cup 2026'
   href: string
   /**
    * When true, the league fetcher short-circuits to an empty list without
-   * touching the DB. Used for Soccer until Phase B v2 v3 ships.
+   * touching the DB. Currently unused — kept for forward compatibility.
    */
   placeholder?: true
 }
@@ -53,12 +61,19 @@ export interface HomeV2LeagueSectionConfig {
 export type HomeV2SectionConfig = HomeV2TagSectionConfig | HomeV2LeagueSectionConfig
 
 /**
- * Render order for Step 3:
- *   Baseball → Basketball → Hockey → Soccer.
+ * Render order:
+ *   Baseball → Basketball → Hockey → Soccer (EPL+La Liga+MLS) → FIFA World Cup.
  */
 export const HOME_V2_CATEGORIES: readonly HomeV2SectionConfig[] = [
   { kind: 'league', id: 'baseball', leagueSlug: 'mlb', titleKey: 'Baseball', href: '/sports/baseball/games' },
   { kind: 'league', id: 'basketball', leagueSlug: 'nba', titleKey: 'Basketball', href: '/sports/basketball/games' },
   { kind: 'league', id: 'hockey', leagueSlug: 'nhl', titleKey: 'Hockey', href: '/sports/hockey/games' },
-  { kind: 'league', id: 'soccer', titleKey: 'Soccer', href: '/sports/soccer/games', placeholder: true },
+  { kind: 'league', id: 'soccer', sportRouteSlug: 'soccer', titleKey: 'Soccer', href: '/sports/soccer/games' },
+  {
+    kind: 'league',
+    id: 'fifa-world-cup',
+    leagueSlug: 'fifwc',
+    titleKey: 'FIFA World Cup 2026',
+    href: '/sports/fifa-world-cup/games',
+  },
 ] as const

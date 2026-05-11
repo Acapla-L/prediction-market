@@ -43,13 +43,21 @@ interface ParsedGameSlug {
  * with the trailing 3 being `YYYY-MM-DD`.
  *
  * Returns `null` on any shape mismatch — the caller decides null vs throw.
+ *
+ * `teamOrderConvention` controls which of the two abbreviation slots is the
+ * away team. Defaults to `'away_first'` — byte-identical to the original
+ * behavior (MLB/NBA/NHL slugs list the visiting team first). Soccer leagues
+ * pass `'home_first'` (slug + title list the home team first).
  */
-export function parseGameSlugTeams(slug: string): ParsedGameSlug | null {
+export function parseGameSlugTeams(
+  slug: string,
+  teamOrderConvention: 'away_first' | 'home_first' = 'away_first',
+): ParsedGameSlug | null {
   const parts = slug.split('-')
   if (parts.length !== 6) {
     return null
   }
-  const [league, awayAbbr, homeAbbr, year, month, day] = parts as [
+  const [league, firstAbbr, secondAbbr, year, month, day] = parts as [
     string,
     string,
     string,
@@ -60,9 +68,11 @@ export function parseGameSlugTeams(slug: string): ParsedGameSlug | null {
   if (!/^\d{4}$/.test(year) || !/^\d{2}$/.test(month) || !/^\d{2}$/.test(day)) {
     return null
   }
-  if (!league || !awayAbbr || !homeAbbr) {
+  if (!league || !firstAbbr || !secondAbbr) {
     return null
   }
+  const awayAbbr = teamOrderConvention === 'home_first' ? secondAbbr : firstAbbr
+  const homeAbbr = teamOrderConvention === 'home_first' ? firstAbbr : secondAbbr
   return { league, awayAbbr, homeAbbr }
 }
 
@@ -381,7 +391,8 @@ export function buildSportsGamesCardFromGameRow(
   awayTeam: TeamCacheRow | null,
   sportRouteSlug: string,
 ): SportsGamesCard | null {
-  const parsed = parseGameSlugTeams(row.slug)
+  const league = getLeagueForGameSlug(row.slug)
+  const parsed = parseGameSlugTeams(row.slug, league?.teamOrderConvention)
   if (!parsed) {
     return null
   }
@@ -456,16 +467,22 @@ export function buildSportsGamesCardFromGameRow(
 export async function loadDiscoveredGameSportsCard(slug: string): Promise<SportsGamesCard | null> {
   'use cache'
 
-  const parsed = parseGameSlugTeams(slug)
-  if (!parsed) {
-    return null
-  }
-
   cacheTag(cacheTags.discoveredGame(slug))
-  cacheTag(cacheTags.teamsCache(parsed.league))
 
   const league = getLeagueForGameSlug(slug)
   if (!league) {
+    return null
+  }
+
+  // NEW-10: key the teams_cache lookups + cache tag on the registry league
+  // slug (e.g. La Liga → 'laliga'), NOT the slug-derived prefix (`lal-...`
+  // yields `'lal'`). For MLB/NBA/NHL these coincide (`'mlb' === 'mlb'`); for
+  // soccer they diverge. The teams sync route writes rows keyed by the
+  // registry slug, so reads must use it too.
+  cacheTag(cacheTags.teamsCache(league.slug))
+
+  const parsed = parseGameSlugTeams(slug, league.teamOrderConvention)
+  if (!parsed) {
     return null
   }
 
@@ -482,8 +499,8 @@ export async function loadDiscoveredGameSportsCard(slug: string): Promise<Sports
   }
 
   const [{ data: homeRow }, { data: awayRow }] = await Promise.all([
-    TeamsCacheRepository.getByAbbreviation(parsed.league, parsed.homeAbbr),
-    TeamsCacheRepository.getByAbbreviation(parsed.league, parsed.awayAbbr),
+    TeamsCacheRepository.getByAbbreviation(league.slug, parsed.homeAbbr),
+    TeamsCacheRepository.getByAbbreviation(league.slug, parsed.awayAbbr),
   ])
 
   if (!homeRow) {
@@ -492,14 +509,14 @@ export async function loadDiscoveredGameSportsCard(slug: string): Promise<Sports
     // before they silently degrade UX (uppercase abbreviation, no logo, no
     // color). Search by 'teams_cache miss' to enumerate.
     console.warn('teams_cache miss', {
-      league: parsed.league,
+      league: league.slug,
       abbreviation: parsed.homeAbbr,
       slug,
     })
   }
   if (!awayRow) {
     console.warn('teams_cache miss', {
-      league: parsed.league,
+      league: league.slug,
       abbreviation: parsed.awayAbbr,
       slug,
     })
@@ -570,7 +587,7 @@ export async function loadDiscoveredGameSportsCardsByLeague(
 
   const cards: SportsGamesCard[] = []
   for (const row of tradeable) {
-    const parsed = parseGameSlugTeams(row.slug)
+    const parsed = parseGameSlugTeams(row.slug, league.teamOrderConvention)
     if (!parsed) {
       continue
     }

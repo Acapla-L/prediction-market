@@ -39,10 +39,15 @@ const POLYMARKET_OVERLAY_SLUGS_INLINE: ReadonlySet<string> = new Set<string>([
 // slugs are unbounded (~22 active games/day at MLB peak) and can't be enumerated.
 //
 // Multi-league as of Phase B v2 v2 (2026-05-06): MLB + NBA + NHL.
+// Phase B v2 v3 (2026-05-11): + EPL + La Liga (`lal-` prefix) + MLS + FIFA WC.
 const DISCOVERED_GAME_SLUG_PATTERNS_INLINE: readonly RegExp[] = [
   /^mlb-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
   /^nba-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
   /^nhl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
+  /^epl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
+  /^lal-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
+  /^mls-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
+  /^fifwc-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
 ] as const
 
 function isInlineDiscoveryGameSlug(slug: string): boolean {

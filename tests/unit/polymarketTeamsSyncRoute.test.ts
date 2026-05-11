@@ -139,6 +139,46 @@ function mockFetchPerLeague(
   return { fetchSpy }
 }
 
+const TEAMS_PAGE_LIMIT = 50
+
+/**
+ * Per-(league, offset) fetch router for NEW-11 pagination tests. `pages` maps a
+ * league API code → an array of pages; the router serves `pages[i]` for
+ * `offset = i * TEAMS_PAGE_LIMIT`. A page entry of the string literal `'400'`
+ * simulates an HTTP 400 at that offset. Beyond the supplied pages, returns `[]`.
+ */
+function mockFetchPaginated(pages: Record<string, Array<unknown[] | '400'>>) {
+  const fetchSpy = vi.fn(async (input: unknown) => {
+    const url = typeof input === 'string' ? input : (input as URL).toString()
+    const leagueMatch = /league=([^&]+)/.exec(url)
+    const offsetMatch = /offset=(\d+)/.exec(url)
+    const slug = leagueMatch ? decodeURIComponent(leagueMatch[1]).toLowerCase() : ''
+    const offset = offsetMatch ? Number(offsetMatch[1]) : 0
+    const pageIndex = Math.floor(offset / TEAMS_PAGE_LIMIT)
+    const page = pages[slug]?.[pageIndex] ?? []
+    if (page === '400') {
+      return { ok: false, status: 400, json: vi.fn(async () => ({})) } as unknown as Response
+    }
+    return { ok: true, status: 200, json: vi.fn(async () => page) } as unknown as Response
+  })
+  globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch
+  return { fetchSpy }
+}
+
+/** Build N synthetic real teams (non-null logo+color so heuristics don't fire). */
+function syntheticTeams(league: string, count: number, startId: number) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: startId + i,
+    name: `${league.toUpperCase()} Team ${startId + i}`,
+    league,
+    abbreviation: `${league.slice(0, 2)}${(startId + i).toString().padStart(4, '0')}`,
+    alias: null,
+    logo: `https://example.test/${league}-${startId + i}.png`,
+    color: '#123456',
+    record: null,
+  }))
+}
+
 describe('/api/sync/polymarket-teams', () => {
   beforeEach(() => {
     vi.resetAllMocks()
@@ -722,5 +762,116 @@ describe('/api/sync/polymarket-teams', () => {
     expect(mlb!.applyLogoColorPlaceholderHeuristic).toBeFalsy()
     expect(nba!.applyLogoColorPlaceholderHeuristic).toBe(true)
     expect(nhl!.applyLogoColorPlaceholderHeuristic).toBe(true)
+  })
+
+  // ---------------------------------------------------------------------------
+  // NEW-10 — `/teams` URL uses the league's `teamsApiCode` (falls back to slug).
+  // NEW-11 — paginated `/teams` fetch (limit/offset loop).
+  // ---------------------------------------------------------------------------
+
+  it('nEW-10: queries /teams by teamsApiCode for La Liga (?league=lal) but writes teams_cache(league=laliga)', async () => {
+    const laligaTeams = syntheticTeams('laliga', 20, 7000)
+    // Key the per-league router by the API CODE the route requests ('lal'),
+    // not the registry slug ('laliga').
+    const { fetchSpy } = mockFetchPerLeague({ lal: laligaTeams })
+
+    const res = await GET(makeRequest())
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    // Some fetch call requested `?league=lal&...` (NOT `?league=laliga`).
+    const requestedUrls = fetchSpy.mock.calls.map(([input]) =>
+      typeof input === 'string' ? input : (input as URL).toString(),
+    )
+    expect(requestedUrls.some(u => /[?&]league=lal(?:&|$)/.test(u))).toBe(true)
+    expect(requestedUrls.some(u => /[?&]league=laliga(?:&|$)/.test(u))).toBe(false)
+    // MLB still queried by its slug ('mlb' === its API code).
+    expect(requestedUrls.some(u => /[?&]league=mlb(?:&|$)/.test(u))).toBe(true)
+    // EPL queried by its slug ('epl').
+    expect(requestedUrls.some(u => /[?&]league=epl(?:&|$)/.test(u))).toBe(true)
+    // MLS queried by its slug ('mls').
+    expect(requestedUrls.some(u => /[?&]league=mls(?:&|$)/.test(u))).toBe(true)
+
+    // teams_cache rows for La Liga are written under the registry slug 'laliga'.
+    const laligaUpserts = mockedRepo.upsertSuccess.mock.calls.filter(
+      ([input]) => input.league === 'laliga',
+    )
+    expect(laligaUpserts).toHaveLength(20)
+    // No row written under 'lal'.
+    expect(mockedRepo.upsertSuccess.mock.calls.some(([i]) => i.league === 'lal')).toBe(false)
+
+    // revalidateTag uses the registry slug.
+    expect(mockedRevalidateTag).toHaveBeenCalledWith('teams-cache:laliga', 'max')
+
+    const laligaResult = body.results.find((r: { league: string }) => r.league === 'laliga')
+    expect(laligaResult.status).toBe('ok')
+    expect(laligaResult.team_count).toBe(20)
+  })
+
+  it('nEW-11: fetchAllTeams accumulates a full first page + partial second page', async () => {
+    const page1 = syntheticTeams('mls', TEAMS_PAGE_LIMIT, 1000) // exactly 50 → triggers a second fetch
+    const page2 = syntheticTeams('mls', 11, 2000) // 11 < 50 → terminates
+    mockFetchPaginated({ mls: [page1, page2] })
+
+    const res = await GET(makeRequest())
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    const mlsUpserts = mockedRepo.upsertSuccess.mock.calls.filter(
+      ([input]) => input.league === 'mls',
+    )
+    expect(mlsUpserts).toHaveLength(61) // 50 + 11 — both pages persisted
+    const mlsResult = body.results.find((r: { league: string }) => r.league === 'mls')
+    expect(mlsResult.status).toBe('ok')
+    expect(mlsResult.team_count).toBe(61)
+    expect(mockedRevalidateTag).toHaveBeenCalledWith('teams-cache:mls', 'max')
+  })
+
+  it('nEW-11: a later-page HTTP 400 degrades gracefully — page-1 teams still written, no throw', async () => {
+    const page1 = syntheticTeams('mls', TEAMS_PAGE_LIMIT, 3000) // exactly 50 → second fetch attempted
+    mockFetchPaginated({ mls: [page1, '400'] })
+
+    const res = await GET(makeRequest())
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    const mlsUpserts = mockedRepo.upsertSuccess.mock.calls.filter(
+      ([input]) => input.league === 'mls',
+    )
+    expect(mlsUpserts).toHaveLength(50) // page-1 teams preserved despite page-2 failure
+    const mlsResult = body.results.find((r: { league: string }) => r.league === 'mls')
+    // Partial accumulation is treated as a successful sync (no error_count).
+    expect(mlsResult.status).toBe('ok')
+    expect(mlsResult.team_count).toBe(50)
+  })
+
+  it('soccer leagues with no placeholderAbbreviations Set do not crash isLeaguePlaceholder Tier 1', async () => {
+    // A soccer team lacking the registry Set must NOT be filtered just for that.
+    const eplTeam = {
+      id: 4001,
+      name: 'Arsenal',
+      league: 'epl',
+      abbreviation: 'ars',
+      alias: 'Gunners',
+      logo: 'https://example.test/ars.png',
+      color: '#ef0107',
+      record: null,
+    }
+    mockFetchPerLeague({ epl: [eplTeam] })
+
+    const res = await GET(makeRequest())
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    const eplResult = body.results.find((r: { league: string }) => r.league === 'epl')
+    expect(eplResult).toBeDefined()
+    expect(eplResult.status).toBe('ok')
+    expect(eplResult.team_count).toBe(1)
+    expect(eplResult.skipped_count).toBe(0)
+    const eplUpserts = mockedRepo.upsertSuccess.mock.calls.filter(
+      ([input]) => input.league === 'epl',
+    )
+    expect(eplUpserts).toHaveLength(1)
+    expect(eplUpserts[0][0].abbreviation).toBe('ars')
   })
 })

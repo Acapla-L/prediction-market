@@ -12,10 +12,13 @@ import { buildDynamicHomeCategorySlugSet, isPlatformReservedRootSlug } from '@/l
 import { cn } from '@/lib/utils'
 
 // MLB/NBA/NHL link to Stream 2 list routes (Phase B v2 v3 shipped 2026-05-08).
-// NFL/UCL still link to home-v2 anchor sections (no per-game discovery yet —
-// NFL not in registry; UCL deferred to Phase B v2 v3 soccer rollout). Hash-
-// fragment URLs are not in Next.js's typed Route union, so we cast via
-// `unknown` for the home-v2 entries.
+// EPL/La Liga/MLS/UCL all link to the unified `/sports/soccer/games` list
+// route (Phase B v2 v3 soccer rollout — sport-route alias `soccer` resolves
+// via all home_first soccer leagues; UCL games appear there once UCL ships).
+// FIFA World Cup gets its own `/sports/fifa-world-cup/games` list page.
+// NFL still links to a home-v2 anchor section (no per-game discovery yet —
+// NFL not in registry). Hash-fragment URLs are not in Next.js's typed Route
+// union, so we cast via `unknown` for the home-v2 anchor entry.
 //
 // MLB tab points at `/sports/baseball/games` (sport-route alias) rather than
 // `/sports/mlb/games` (registry slug) per Allan's 2026-05-08 directive — both
@@ -27,8 +30,12 @@ const LEAGUE_HREF_MAP: Readonly<Record<string, Route>> = {
   mlb: '/sports/baseball/games' as Route,
   nba: '/sports/nba/games' as Route,
   nhl: '/sports/nhl/games' as Route,
+  epl: '/sports/soccer/games' as Route,
+  laliga: '/sports/soccer/games' as Route,
+  mls: '/sports/soccer/games' as Route,
+  ucl: '/sports/soccer/games' as Route,
+  fifwc: '/sports/fifa-world-cup/games' as Route,
   nfl: '/home-v2#football' as unknown as Route,
-  ucl: '/home-v2#soccer' as unknown as Route,
 }
 
 function getMainTagHref(slug: string, dynamicHomeCategorySlugSet: ReadonlySet<string>): Route {

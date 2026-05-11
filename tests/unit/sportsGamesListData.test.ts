@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Import after mocks so the module under test resolves to the mocked deps.
 import {
+  fetchSportsGamesListCachedData,
   generateSportsGamesListMetadata,
   renderSportsGamesListPage,
 } from '@/app/[locale]/(platform)/sports/_utils/sports-games-list-data'
@@ -174,6 +175,50 @@ describe('renderSportsGamesListPage — Stream 2 dispatch invariants', () => {
     expect(node).toBeDefined()
     expect(mockedListEvents).toHaveBeenCalledOnce()
     expect(mockedLoadDiscoveryByLeague).toHaveBeenCalledWith('mlb')
+  })
+
+  it('soccer URL → dispatches to ALL soccer leagues (epl, laliga, mls) and unions cards', async () => {
+    setKuestUnknown()
+    mockedListEvents.mockResolvedValue({ data: [], error: null } as Awaited<ReturnType<typeof EventRepository.listEvents>>)
+    mockedLoadDiscoveryByLeague.mockImplementation(async (leagueSlug: string) => {
+      if (leagueSlug === 'epl') {
+        return [makeDiscoveryCard('epl-ars-che-2026-05-10', '2026-05-10T14:00:00Z')]
+      }
+      if (leagueSlug === 'laliga') {
+        return [makeDiscoveryCard('lal-rma-bar-2026-05-11', '2026-05-11T19:00:00Z')]
+      }
+      if (leagueSlug === 'mls') {
+        return [makeDiscoveryCard('mls-lafc-sea-2026-05-12', '2026-05-12T23:00:00Z')]
+      }
+      return []
+    })
+
+    const data = await fetchSportsGamesListCachedData('soccer', 'en')
+    expect(data).not.toBeNull()
+    expect(data!.sportSlug).toBe('soccer')
+    expect(typeof data!.sportTitle).toBe('string')
+    expect(data!.sportTitle.length).toBeGreaterThan(0)
+    // One call per soccer league, in registry order.
+    expect(mockedLoadDiscoveryByLeague.mock.calls.map(c => c[0])).toEqual(['epl', 'laliga', 'mls'])
+    // Cards = union of all three leagues.
+    const slugs = data!.cards.map(card => (card.event as { slug: string }).slug)
+    expect(slugs).toContain('epl-ars-che-2026-05-10')
+    expect(slugs).toContain('lal-rma-bar-2026-05-11')
+    expect(slugs).toContain('mls-lafc-sea-2026-05-12')
+  })
+
+  it('fifa-world-cup URL → dispatches to fifwc league only with friendly title', async () => {
+    setKuestUnknown()
+    mockedListEvents.mockResolvedValue({ data: [], error: null } as Awaited<ReturnType<typeof EventRepository.listEvents>>)
+    mockedLoadDiscoveryByLeague.mockImplementation(async (leagueSlug: string) =>
+      leagueSlug === 'fifwc' ? [makeDiscoveryCard('fifwc-arg-fra-2026-06-15', '2026-06-15T19:00:00Z')] : [],
+    )
+
+    const data = await fetchSportsGamesListCachedData('fifa-world-cup', 'en')
+    expect(data).not.toBeNull()
+    expect(data!.sportSlug).toBe('fifa-world-cup')
+    expect(data!.sportTitle).toBe('FIFA World Cup 2026')
+    expect(mockedLoadDiscoveryByLeague.mock.calls.map(c => c[0])).toEqual(['fifwc'])
   })
 
   it('kuest empty + discovery non-empty (NBA) → renders discovery cards only', async () => {

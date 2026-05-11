@@ -10,6 +10,9 @@ import {
   serializeGamesDiscoveryPayload,
 } from '@/lib/polymarket/normalize-games-discovery-payload'
 
+// Long-running cron sync — match the legacy Kuest sync routes' ceiling.
+export const maxDuration = 300
+
 interface RefreshSyncResult {
   slug: string
   status: 'ok' | 'gamma_404' | 'normalize_skipped' | 'upsert_error' | 'network_error' | 'unknown_league'
@@ -183,6 +186,12 @@ async function handleGamesRefreshSync(request: Request): Promise<NextResponse<Re
       revalidatePath(`/en/sports/${league.sportRouteSlug}/games`)
       revalidatePath(`/en/sports/${league.slug}/games`)
     }
+  }
+  if (touchedLeagues.size > 0) {
+    // home-v2 sport sections render the refreshed prices/lifecycle flags too —
+    // bust the homepage edge HTML so the shelves stay current.
+    revalidatePath('/')
+    revalidatePath('/en')
   }
 
   return NextResponse.json({
