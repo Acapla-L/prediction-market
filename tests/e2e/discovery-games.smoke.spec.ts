@@ -60,18 +60,7 @@ const LEAGUE_TO_SPORT_ROUTE: Readonly<Record<string, string>> = {
   nhl: 'hockey',
   nfl: 'football',
   epl: 'soccer',
-  laliga: 'soccer',
-  mls: 'soccer',
-  fifwc: 'fifa-world-cup',
 }
-
-// Leagues whose per-game pages can be slow to cold-fill on a fresh preview
-// deploy (Phase B v2 v1 cold-cache flakiness pattern). Soccer was added after
-// the original MLB/NBA/NHL gate, so we give those cases a longer budget.
-const COLD_CACHE_PRONE_SPORT_ROUTES: ReadonlySet<string> = new Set([
-  'soccer',
-  'fifa-world-cup',
-])
 
 // FIXED at test setup. DO NOT re-query during the test run. If games complete
 // or new games appear between stages, we want every test to see the same slug
@@ -201,14 +190,6 @@ test.describe('Phase B per-game discovery: sports event pages render with multi-
     }
     if (!baseURL) {
       throw new Error('baseURL required')
-    }
-
-    // Cold-cache flakiness: soccer / FIFA WC per-game pages can be slow to
-    // cold-fill on a fresh preview deploy. Bump the budget when the fixed
-    // case list includes any cold-cache-prone sport route.
-    const hasColdCacheProneCase = SMOKE_CASES.some(c => COLD_CACHE_PRONE_SPORT_ROUTES.has(c.sportRouteSlug))
-    if (hasColdCacheProneCase) {
-      test.setTimeout(90_000)
     }
 
     for (const smokeCase of SMOKE_CASES) {

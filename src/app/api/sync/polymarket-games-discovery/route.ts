@@ -10,9 +10,6 @@ import {
   serializeGamesDiscoveryPayload,
 } from '@/lib/polymarket/normalize-games-discovery-payload'
 
-// Long-running cron sync — match the legacy Kuest sync routes' ceiling.
-export const maxDuration = 300
-
 interface SlugSyncResult {
   slug: string
   league: string
@@ -217,11 +214,6 @@ async function handleGamesDiscoverySync(request: Request): Promise<NextResponse<
   if (successfulSlugs.length > 0) {
     revalidateTag(cacheTags.discoveredGamesSidebar, 'max')
     revalidateTag(cacheTags.eventsList, 'max')
-    // NOTE: removed `revalidatePath('/')` + `revalidatePath('/en')` (was added in
-    // 324eb8ce) for consistency with the games-refresh route — the `eventsList`
-    // tag bust above already forces the home-v2 sections to re-render on the next
-    // homepage request, without busting the whole `/` full-route cache. See the
-    // P0 incident note in polymarket-games-refresh/route.ts.
   }
 
   return NextResponse.json({

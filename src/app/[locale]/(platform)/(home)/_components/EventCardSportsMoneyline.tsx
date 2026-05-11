@@ -24,23 +24,6 @@ interface EventCardSportsMoneylineProps {
 
 const HOME_OUTCOME_BUTTON_HEIGHT_CLASS = 'h-[40px]'
 
-// Inline mirror of DISCOVERED_GAMES_LEAGUES[*].slugPattern from @/lib/polymarket/games-leagues
-// (can't import the server registry into a 'use client' component — it has server-only siblings).
-// Drift-locked by tests/unit/discoveryGameSlugPatternInvariant.test.ts.
-export const DISCOVERED_GAME_SLUG_PATTERNS_INLINE: readonly RegExp[] = [
-  /^mlb-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
-  /^nba-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
-  /^nhl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
-  /^epl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
-  /^lal-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
-  /^mls-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
-  /^fifwc-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
-] as const
-
-function isInlineDiscoveryGameSlug(slug: string): boolean {
-  return DISCOVERED_GAME_SLUG_PATTERNS_INLINE.some(p => p.test(slug))
-}
-
 function normalizeComparableText(value: string | null | undefined) {
   return value
     ?.trim()
@@ -184,14 +167,13 @@ export default function EventCardSportsMoneyline({
   )
   function resolveButtonHref(button: HomeSportsMoneylineButton) {
     const marketSlug = marketSlugByConditionId.get(button.conditionId)
-    // Phase B per-game synthetic events: MLB/NBA/NHL emit `market.slug === event.slug`;
-    // soccer 1X2 legs emit DISTINCT per-leg slugs (event-slug + "-home"/"-draw"/"-away" or
-    // an abbreviation suffix). In BOTH cases the .../[sport]/[event]/[market] route is
-    // Kuest-only (no discovery branch) → 404. The .../[sport]/[event] base path DOES have
-    // the Phase B discovery branch. So whenever `event.slug` is a discovery game slug, drop
-    // marketSlug and route to the base path with conditionId + outcomeIndex query params.
-    const isDiscoveryGameEvent = isInlineDiscoveryGameSlug(event.slug)
-    const effectiveMarketSlug = !isDiscoveryGameEvent && marketSlug && marketSlug !== event.slug
+    // Phase B per-game synthetic events emit `market.slug === event.slug`
+    // (both sourced from row.slug in synthesize-sports-card.ts:217). Passing
+    // the duplicate would produce /sports/{sport}/{slug}/{slug} which the
+    // sports-event route can't resolve (double-slug 404). Drop marketSlug
+    // when it collides with the event slug; the resulting base path with
+    // outcomeIndex query param is what the detail page expects.
+    const effectiveMarketSlug = marketSlug && marketSlug !== event.slug
       ? marketSlug
       : undefined
     return resolveEventOutcomePath(event, {

@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   DISCOVERED_GAMES_LEAGUES,
-  FRIENDLY_DISCOVERY_TITLES,
   getLeagueForGameSlug,
-  getLeaguesBySportRouteSlug,
   isDiscoveryGameSlug,
 } from '@/lib/polymarket/games-leagues'
 
@@ -95,14 +93,14 @@ describe('phase B per-game leagues registry', () => {
     expect(isDiscoveryGameSlug('elon-musk-of-tweets-may-5')).toBe(false)
   })
 
-  it('isDiscoveryGameSlug accepts NBA + NHL + soccer slugs, still rejects unregistered leagues', () => {
-    // Phase B v2 v2 added NBA + NHL; Phase B v2 v3 added EPL/La Liga/MLS/FIFA WC.
+  it('isDiscoveryGameSlug accepts NBA + NHL slugs (Phase B v2 v2 ship), still rejects unregistered leagues', () => {
+    // Phase B v2 v2 added NBA + NHL to the registry.
     expect(isDiscoveryGameSlug('nba-min-sas-2026-05-06')).toBe(true)
     expect(isDiscoveryGameSlug('nhl-flo-edm-2026-06-15')).toBe(true)
-    expect(isDiscoveryGameSlug('epl-mci-arn-2026-05-15')).toBe(true)
 
-    // NFL is still NOT in the registry — preserves locked-out behavior.
+    // NFL and EPL are still NOT in the registry — preserves locked-out behavior.
     expect(isDiscoveryGameSlug('nfl-kc-buf-2026-09-08')).toBe(false)
+    expect(isDiscoveryGameSlug('epl-mci-arn-2026-05-15')).toBe(false)
   })
 
   it('isDiscoveryGameSlug rejects malformed slugs', () => {
@@ -129,85 +127,5 @@ describe('phase B per-game leagues registry', () => {
   it('getLeagueForGameSlug returns undefined for non-discovery slugs', () => {
     expect(getLeagueForGameSlug('mlb-world-series-champion-2026')).toBeUndefined()
     expect(getLeagueForGameSlug('random-slug')).toBeUndefined()
-  })
-})
-
-describe('phase B v2 v3 soccer leagues (EPL / La Liga / MLS / FIFA WC)', () => {
-  const epl = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'epl')!
-  const laliga = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'laliga')!
-  const mls = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'mls')!
-  const fifwc = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'fifwc')!
-
-  it('registers all 4 soccer entries with correct slug / seriesId / sportRouteSlug', () => {
-    expect(epl).toBeDefined()
-    expect(laliga).toBeDefined()
-    expect(mls).toBeDefined()
-    expect(fifwc).toBeDefined()
-
-    expect(epl.seriesId).toBe('10188')
-    expect(laliga.seriesId).toBe('10193')
-    expect(mls.seriesId).toBe('10189')
-    expect(fifwc.seriesId).toBe('11433')
-
-    expect(epl.sportRouteSlug).toBe('soccer')
-    expect(laliga.sportRouteSlug).toBe('soccer')
-    expect(mls.sportRouteSlug).toBe('soccer')
-    expect(fifwc.sportRouteSlug).toBe('fifa-world-cup')
-  })
-
-  it('only La Liga carries teamsApiCode (=lal); EPL/MLS/FIFA WC omit it', () => {
-    expect(laliga.teamsApiCode).toBe('lal')
-    expect(epl.teamsApiCode).toBeUndefined()
-    expect(mls.teamsApiCode).toBeUndefined()
-    expect(fifwc.teamsApiCode).toBeUndefined()
-  })
-
-  it('all 4 soccer entries use home_first; US-sports leagues stay away_first', () => {
-    expect(epl.teamOrderConvention).toBe('home_first')
-    expect(laliga.teamOrderConvention).toBe('home_first')
-    expect(mls.teamOrderConvention).toBe('home_first')
-    expect(fifwc.teamOrderConvention).toBe('home_first')
-
-    const mlb = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'mlb')!
-    const nba = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'nba')!
-    const nhl = DISCOVERED_GAMES_LEAGUES.find(l => l.slug === 'nhl')!
-    expect(mlb.teamOrderConvention).toBe('away_first')
-    expect(nba.teamOrderConvention).toBe('away_first')
-    expect(nhl.teamOrderConvention).toBe('away_first')
-  })
-
-  it('soccer entries omit placeholderAbbreviations and applyLogoColorPlaceholderHeuristic', () => {
-    for (const league of [epl, laliga, mls, fifwc]) {
-      expect(league.placeholderAbbreviations).toBeUndefined()
-      expect(league.applyLogoColorPlaceholderHeuristic).toBeUndefined()
-    }
-  })
-
-  it('getLeaguesBySportRouteSlug aggregates across leagues for a multi-league sport', () => {
-    expect(getLeaguesBySportRouteSlug('soccer').map(l => l.slug)).toEqual(['epl', 'laliga', 'mls'])
-    expect(getLeaguesBySportRouteSlug('fifa-world-cup').map(l => l.slug)).toEqual(['fifwc'])
-    // No regression for single-league sports.
-    expect(getLeaguesBySportRouteSlug('baseball').map(l => l.slug)).toEqual(['mlb'])
-    expect(getLeaguesBySportRouteSlug('nonexistent')).toEqual([])
-  })
-
-  it('getLeagueForGameSlug bridges soccer slug-prefix → registry slug', () => {
-    expect(getLeagueForGameSlug('lal-elc-ala-2026-05-09')?.slug).toBe('laliga')
-    expect(getLeagueForGameSlug('epl-mac-cry-2026-03-21')?.slug).toBe('epl')
-    expect(getLeagueForGameSlug('mls-ner-hou-2026-03-07')?.slug).toBe('mls')
-    expect(getLeagueForGameSlug('fifwc-mex-rsa-2026-06-11')?.slug).toBe('fifwc')
-  })
-
-  it('isDiscoveryGameSlug recognizes soccer per-game slugs', () => {
-    expect(isDiscoveryGameSlug('epl-mac-cry-2026-03-21')).toBe(true)
-    expect(isDiscoveryGameSlug('lal-elc-ala-2026-05-09')).toBe(true)
-    expect(isDiscoveryGameSlug('mls-ner-hou-2026-03-07')).toBe(true)
-    expect(isDiscoveryGameSlug('fifwc-mex-rsa-2026-06-11')).toBe(true)
-    // The Phase A v2 FIFA futures slug must NOT match the per-game pattern.
-    expect(isDiscoveryGameSlug('2026-fifa-world-cup-winner-595')).toBe(false)
-  })
-
-  it('fRIENDLY_DISCOVERY_TITLES carries the FIFA WC h1 fallback', () => {
-    expect(FRIENDLY_DISCOVERY_TITLES.fifwc).toBe('FIFA World Cup 2026')
   })
 })

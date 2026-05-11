@@ -10,9 +10,6 @@ import {
   serializeGamesDiscoveryPayload,
 } from '@/lib/polymarket/normalize-games-discovery-payload'
 
-// Long-running cron sync — match the legacy Kuest sync routes' ceiling.
-export const maxDuration = 300
-
 interface RefreshSyncResult {
   slug: string
   status: 'ok' | 'gamma_404' | 'normalize_skipped' | 'upsert_error' | 'network_error' | 'unknown_league'
@@ -187,12 +184,6 @@ async function handleGamesRefreshSync(request: Request): Promise<NextResponse<Re
       revalidatePath(`/en/sports/${league.slug}/games`)
     }
   }
-  // NOTE: removed `revalidatePath('/')` + `revalidatePath('/en')` (was added in
-  // 324eb8ce). On this every-5-min cron it busted the homepage full-route cache
-  // continuously, forcing a heavy cold re-render against Supabase that exhausted
-  // the connection pool (P0 incident 2026-05-11). The per-league
-  // `revalidateTag(discoveredGamesList(...))` calls above already propagate fresh
-  // prices/lifecycle flags to the home-v2 sport shelves within seconds.
 
   return NextResponse.json({
     ok: true,

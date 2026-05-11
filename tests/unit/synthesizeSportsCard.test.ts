@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildSportsGamesCardFromGameRow,
   buildSyntheticEvent,
-  loadDiscoveredGameSportsCard,
   parseGameSlugTeams,
 } from '@/lib/polymarket/synthesize-sports-card'
 
@@ -34,24 +33,6 @@ vi.mock('next/cache', () => ({
   cacheTag: vi.fn(),
   unstable_cache: vi.fn((fn: () => unknown) => fn),
   revalidateTag: vi.fn(),
-}))
-
-// Repository mocks — only exercised by the `loadDiscoveredGameSportsCard`
-// soccer NEW-10 test below. The pure projection tests in this file never
-// touch the repositories, so these no-op mocks are harmless to them.
-const mockGetBySlug = vi.fn()
-const mockGetByAbbreviation = vi.fn()
-vi.mock('@/lib/db/queries/discovered-games', () => ({
-  DiscoveredGamesRepository: {
-    getBySlug: (...args: unknown[]) => mockGetBySlug(...args),
-    listUpcomingByLeague: vi.fn(async () => ({ data: [], error: null })),
-  },
-}))
-vi.mock('@/lib/db/queries/teams-cache', () => ({
-  TeamsCacheRepository: {
-    getByAbbreviation: (...args: unknown[]) => mockGetByAbbreviation(...args),
-    listByLeague: vi.fn(async () => ({ data: [], error: null })),
-  },
 }))
 
 // ---- Fixtures ---------------------------------------------------------
@@ -291,43 +272,6 @@ describe('parseGameSlugTeams', () => {
     // Empty fields between dashes split into '' parts which fail the truthy guard.
     expect(parseGameSlugTeams('mlb--tb-2026-05-06')).toBeNull()
     expect(parseGameSlugTeams('mlb-tor--2026-05-06')).toBeNull()
-  })
-
-  // ---- teamOrderConvention (NEW-7, soccer) --------------------------
-
-  it('one-arg call is byte-identical to the original away_first behavior (MLB unchanged)', () => {
-    // The default must preserve the pre-NEW-7 contract: first abbr = away,
-    // second abbr = home. MLB/NBA/NHL callers that pass nothing must not regress.
-    expect(parseGameSlugTeams('mlb-mil-stl-2026-05-05')).toEqual({
-      league: 'mlb',
-      awayAbbr: 'mil',
-      homeAbbr: 'stl',
-    })
-  })
-
-  it('explicit away_first matches the default (US sports unchanged)', () => {
-    expect(parseGameSlugTeams('mlb-mil-stl-2026-05-05', 'away_first')).toEqual({
-      league: 'mlb',
-      awayAbbr: 'mil',
-      homeAbbr: 'stl',
-    })
-  })
-
-  it('home_first swaps the abbreviation slots (soccer slug)', () => {
-    // Soccer: `lal-elc-ala-...` = Elche (home) vs Deportivo Alavés (away).
-    expect(parseGameSlugTeams('lal-elc-ala-2026-05-09', 'home_first')).toEqual({
-      league: 'lal',
-      homeAbbr: 'elc',
-      awayAbbr: 'ala',
-    })
-  })
-
-  it('soccer slug with the default (away_first) does NOT swap', () => {
-    expect(parseGameSlugTeams('lal-elc-ala-2026-05-09')).toEqual({
-      league: 'lal',
-      awayAbbr: 'elc',
-      homeAbbr: 'ala',
-    })
   })
 })
 
@@ -1086,155 +1030,6 @@ describe('buildSportsGamesCardFromGameRow — NHL fixture-driven projection (Pha
     cards.forEach((card, i) => {
       expect(card, `NHL fixture event index ${i} should project to non-null card`).not.toBeNull()
     })
-  })
-})
-
-// ---- Soccer (Phase B v2 v3) — NEW-7 + NEW-10 ---------------------------
-
-describe('loadDiscoveredGameSportsCard — soccer (La Liga) home_first + registry-slug teams_cache key', () => {
-  let warnSpy: ReturnType<typeof vi.spyOn>
-
-  beforeEach(() => {
-    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    mockGetBySlug.mockReset()
-    mockGetByAbbreviation.mockReset()
-  })
-
-  afterEach(() => {
-    warnSpy.mockRestore()
-  })
-
-  const SOCCER_SLUG = 'lal-elc-ala-2026-05-09'
-
-  function buildSoccerPayload(): string {
-    // 3 binary YES/NO markets — the soccer "moneyline" decomposition Polymarket
-    // uses (home win / draw / away win), each persisted as its own market_type
-    // 'moneyline' entry. Question text names a team so buildButtons can match.
-    return JSON.stringify({
-      event_created_at: '2026-04-28T06:00:00.000Z',
-      game_start_time: '2026-05-09T19:00:00Z',
-      markets: [
-        {
-          polymarket_market_id: '1',
-          slug: `${SOCCER_SLUG}-elc`,
-          question: 'Will Elche CF win on 2026-05-09?',
-          market_type: 'moneyline',
-          line: null,
-          outcomes: ['Yes', 'No'] as [string, string],
-          outcome_prices: ['0.40', '0.60'] as [string, string],
-          clob_token_ids: ['111', '222'] as [string, string],
-          volume: 1000,
-          is_active: true,
-          is_closed: false,
-          icon_url: null,
-        },
-        {
-          polymarket_market_id: '2',
-          slug: `${SOCCER_SLUG}-ala`,
-          question: 'Will Deportivo Alavés win on 2026-05-09?',
-          market_type: 'moneyline',
-          line: null,
-          outcomes: ['Yes', 'No'] as [string, string],
-          outcome_prices: ['0.35', '0.65'] as [string, string],
-          clob_token_ids: ['333', '444'] as [string, string],
-          volume: 800,
-          is_active: true,
-          is_closed: false,
-          icon_url: null,
-        },
-        {
-          polymarket_market_id: '3',
-          slug: `${SOCCER_SLUG}-draw`,
-          question: 'Will the match end in a draw on 2026-05-09?',
-          market_type: 'moneyline',
-          line: null,
-          outcomes: ['Yes', 'No'] as [string, string],
-          outcome_prices: ['0.25', '0.75'] as [string, string],
-          clob_token_ids: ['555', '666'] as [string, string],
-          volume: 500,
-          is_active: true,
-          is_closed: false,
-          icon_url: null,
-        },
-      ],
-    })
-  }
-
-  function buildSoccerRow(): DiscoveredGameRow {
-    return {
-      slug: SOCCER_SLUG,
-      league: 'laliga',
-      polymarketEventId: '426521',
-      title: 'Elche CF vs. Deportivo Alavés',
-      homeTeamLabel: null,
-      awayTeamLabel: null,
-      gameStartTime: '2026-05-09T19:00:00Z',
-      isActive: true,
-      isClosed: false,
-      isArchived: false,
-      endDate: '2026-05-09T21:00:00Z',
-      marketsPayload: buildSoccerPayload(),
-      lastSyncedAt: '2026-05-08T12:00:00.000Z',
-      lastSyncStatus: 'ok',
-      lastSyncError: null,
-    }
-  }
-
-  function teamRow(abbr: string, name: string): TeamCacheRow {
-    return {
-      league: 'laliga',
-      teamId: `id-${abbr}`,
-      name,
-      alias: name,
-      abbreviation: abbr,
-      logoUrl: `https://example.test/${abbr}.png`,
-      color: '#123456',
-      record: '10-5-3',
-      lastSyncedAt: '2026-05-08T12:00:00.000Z',
-      lastSyncStatus: 'ok',
-      lastSyncError: null,
-    }
-  }
-
-  it('looks up teams_cache by the registry slug "laliga" (NOT slug-prefix "lal") and assigns home=elc', async () => {
-    mockGetBySlug.mockResolvedValue({ data: buildSoccerRow(), error: null })
-    mockGetByAbbreviation.mockImplementation(async (league: string, abbr: string) => {
-      if (league === 'laliga' && abbr === 'elc') {
-        return { data: teamRow('elc', 'Elche CF'), error: null }
-      }
-      if (league === 'laliga' && abbr === 'ala') {
-        return { data: teamRow('ala', 'Deportivo Alavés'), error: null }
-      }
-      return { data: null, error: null }
-    })
-
-    const card = await loadDiscoveredGameSportsCard(SOCCER_SLUG)
-
-    // NEW-10: the teams_cache lookups must be keyed on the registry league
-    // slug 'laliga', never the slug-derived prefix 'lal'.
-    const calls = mockGetByAbbreviation.mock.calls
-    expect(calls).toEqual(
-      expect.arrayContaining([
-        ['laliga', 'elc'],
-        ['laliga', 'ala'],
-      ]),
-    )
-    expect(calls.some(([league]) => league === 'lal')).toBe(false)
-
-    // NEW-7: home_first convention → the slug's FIRST abbr (elc) is the home team.
-    if (card !== null) {
-      const home = card.teams.find(t => t.hostStatus === 'home')
-      const away = card.teams.find(t => t.hostStatus === 'away')
-      expect(home).toBeDefined()
-      expect(home!.abbreviation).toBe('elc')
-      expect(home!.name).toBe('Elche CF')
-      expect(away!.abbreviation).toBe('ala')
-      expect(away!.name).toBe('Deportivo Alavés')
-      expect(card.teams[0]!.hostStatus).toBe('home')
-      expect(card.teams[0]!.abbreviation).toBe('elc')
-    }
-    // If `buildSportsGamesCards` rejects the synthesized event the card may be
-    // null — but the repo-key assertions above (the NEW-10 fix) still hold.
   })
 })
 

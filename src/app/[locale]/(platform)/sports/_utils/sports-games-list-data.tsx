@@ -10,7 +10,7 @@ import { findSportsHrefBySlug } from '@/app/[locale]/(platform)/sports/_utils/sp
 import { cacheTags } from '@/lib/cache-tags'
 import { EventRepository } from '@/lib/db/queries/event'
 import { SportsMenuRepository } from '@/lib/db/queries/sports-menu'
-import { FRIENDLY_DISCOVERY_TITLES, getLeagueBySlug, getLeaguesBySportRouteSlug } from '@/lib/polymarket/games-leagues'
+import { getLeagueBySlug, getLeagueBySportRouteSlug } from '@/lib/polymarket/games-leagues'
 import { loadDiscoveredGameSportsCardsByLeague } from '@/lib/polymarket/synthesize-sports-card'
 import { STATIC_PARAMS_PLACEHOLDER } from '@/lib/static-params'
 import { loadRuntimeThemeState } from '@/lib/theme-settings'
@@ -55,7 +55,7 @@ interface SportsGamesListData {
  * notFound() throw inside `'use cache'` cannot retroactively change the
  * status to 404 (produces React #419 hydration mismatch instead).
  */
-export async function fetchSportsGamesListCachedData(
+async function fetchSportsGamesListCachedData(
   sport: string,
   locale: SupportedLocale,
 ): Promise<SportsGamesListData | null> {
@@ -94,27 +94,20 @@ export async function fetchSportsGamesListCachedData(
   }
 
   // Branch B — Discovery path. Try the URL token directly against the
-  // registry's `sportRouteSlug` (e.g. `'baseball'` → MLB, `'soccer'` →
-  // EPL + La Liga + MLS) first; fall back to the canonical slug
-  // (e.g. `'mlb'` → MLB) so URLs like /sports/mlb/games also dispatch.
-  // NOTE: a single `sportRouteSlug` may map to MULTIPLE leagues (soccer) —
-  // loop over ALL of them and union their discovery cards.
-  let leagues = getLeaguesBySportRouteSlug(sport)
-  if (leagues.length === 0 && kuestCanonical) {
-    const byCanon = getLeagueBySlug(kuestCanonical)
-    if (byCanon) {
-      leagues = [byCanon]
-    }
-  }
+  // registry's `sportRouteSlug` (e.g. `'baseball'` → MLB) first; fall back
+  // to the canonical slug (e.g. `'mlb'` → MLB) so URLs like /sports/mlb/games
+  // also dispatch correctly.
+  const league = getLeagueBySportRouteSlug(sport)
+    ?? (kuestCanonical ? getLeagueBySlug(kuestCanonical) : undefined)
 
-  const discoveryCards: SportsGamesCard[] = []
-  for (const lg of leagues) {
-    cacheTag(cacheTags.discoveredGamesList(lg.slug))
-    discoveryCards.push(...(await loadDiscoveredGameSportsCardsByLeague(lg.slug)))
+  let discoveryCards: SportsGamesCard[] = []
+  if (league) {
+    cacheTag(cacheTags.discoveredGamesList(league.slug))
+    discoveryCards = await loadDiscoveredGameSportsCardsByLeague(league.slug)
   }
 
   // 404 condition: neither branch resolved the URL token.
-  if (!kuestRecognized && leagues.length === 0) {
+  if (!kuestRecognized && !league) {
     return null
   }
 
@@ -140,14 +133,11 @@ export async function fetchSportsGamesListCachedData(
 
   // Sport slug + title resolution: prefer the Kuest canonical (so the
   // sidebar `findSportsHrefBySlug` rendering and h1TitleBySlug lookup match
-  // existing behavior). When Kuest doesn't recognize the URL token, keep the
-  // URL `sport` as the slug — do NOT pick an arbitrary league's slug for the
-  // path (it could be one of several leagues sharing the route).
-  const sportSlug = kuestCanonical ?? sport
+  // existing behavior). Fall back to the discovery registry slug + uppercase
+  // when Kuest doesn't recognize the URL token.
+  const sportSlug = kuestCanonical ?? league?.slug ?? sport
   const sportTitle = layoutData?.h1TitleBySlug[sportSlug]
-    ?? FRIENDLY_DISCOVERY_TITLES[sportSlug]
-    ?? FRIENDLY_DISCOVERY_TITLES[leagues[0]?.slug ?? '']
-    ?? sportSlug.toUpperCase()
+    ?? (league ? league.slug.toUpperCase() : sportSlug.toUpperCase())
 
   return {
     cards: merged,

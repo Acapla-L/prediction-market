@@ -8,9 +8,6 @@ import { TeamsCacheRepository } from '@/lib/db/queries/teams-cache'
 import { POLYMARKET_GAMMA_BASE_DEFAULT } from '@/lib/polymarket/constants'
 import { DISCOVERED_GAMES_LEAGUES } from '@/lib/polymarket/games-leagues'
 
-// Long-running cron sync — match the legacy Kuest sync routes' ceiling.
-export const maxDuration = 300
-
 interface LeagueSyncResult {
   league: string
   status: 'ok' | 'network_error' | 'schema_error' | 'partial'
@@ -109,86 +106,12 @@ function getGammaBase(): string {
   return process.env.POLYMARKET_GAMMA_BASE || POLYMARKET_GAMMA_BASE_DEFAULT
 }
 
-const TEAMS_PAGE_LIMIT = 50
-// UFC ships ~1000+ fighters under the `ufc` league code; UCL ~491; covers all
-// current and foreseeable leagues with comfortable headroom.
-const TEAMS_HARD_CAP = 1200
-
-const TEAMS_FETCH_HEADERS = {
-  'User-Agent': 'WirePredictions/1.0 (+https://wirepredictions.vercel.app)',
-  'Accept': 'application/json',
-} as const
-
-type FetchAllTeamsResult
-  = | { ok: true, teams: z.infer<typeof TeamSchema>[] }
-    | { ok: false, kind: 'network' | 'schema', error: string }
-
-/**
- * NEW-11: paginate `GET /teams?league=<apiCode>&limit&offset` until a short
- * page (fewer than `TEAMS_PAGE_LIMIT` rows) or the hard cap is hit. Mirrors
- * `fetchPolymarketGammaEventsBySeriesPaged` in `client.ts`: a failure on the
- * FIRST page is fatal (`ok: false`); a failure on a LATER page returns the
- * partial accumulation rather than discarding good rows.
- */
-async function fetchAllTeams(apiCode: string): Promise<FetchAllTeamsResult> {
-  const accumulated: z.infer<typeof TeamSchema>[] = []
-  let offset = 0
-
-  while (true) {
-    const url = `${getGammaBase()}/teams?league=${encodeURIComponent(apiCode)}&limit=${TEAMS_PAGE_LIMIT}&offset=${offset}`
-
-    let res: Response
-    try {
-      res = await fetch(url, { cache: 'no-store', headers: TEAMS_FETCH_HEADERS })
-    }
-    catch (err) {
-      const message = err instanceof Error ? err.message : 'unknown'
-      return offset === 0 ? { ok: false, kind: 'network', error: message } : { ok: true, teams: accumulated }
-    }
-
-    if (!res.ok) {
-      return offset === 0
-        ? { ok: false, kind: 'network', error: `Gamma /teams returned HTTP ${res.status}` }
-        : { ok: true, teams: accumulated }
-    }
-
-    let raw: unknown
-    try {
-      raw = await res.json()
-    }
-    catch (err) {
-      const message = err instanceof Error ? err.message : 'unknown'
-      return offset === 0 ? { ok: false, kind: 'schema', error: `JSON parse failed: ${message}` } : { ok: true, teams: accumulated }
-    }
-
-    const parsed = TeamsResponseSchema.safeParse(raw)
-    if (!parsed.success) {
-      return offset === 0
-        ? { ok: false, kind: 'schema', error: `Zod validation failed: ${parsed.error.issues.length} issue(s)` }
-        : { ok: true, teams: accumulated }
-    }
-
-    accumulated.push(...parsed.data)
-
-    if (parsed.data.length < TEAMS_PAGE_LIMIT) {
-      break
-    }
-    if (accumulated.length >= TEAMS_HARD_CAP) {
-      console.warn('[polymarket-teams] hard cap reached', { apiCode, count: accumulated.length })
-      break
-    }
-    offset += TEAMS_PAGE_LIMIT
-  }
-
-  return { ok: true, teams: accumulated }
-}
-
 /**
  * GET / POST /api/sync/polymarket-teams
  *
  * Per-league teams cache sync (Phase B v2). Triggered hourly by pg_cron at :17.
  * For each enabled Phase B league:
- *   1. Paginates `GET /teams?league=<apiCode>&limit&offset` from Polymarket Gamma
+ *   1. Polls `GET /teams?league=<slug>&limit=50` from Polymarket Gamma
  *   2. Filters out league-level placeholders (e.g. MLB All-Star rosters)
  *   3. Upserts each real team into `teams_cache` keyed by (league, abbreviation)
  *   4. On per-team failure, calls `markFailure` (preserves last-known-good metadata)
@@ -222,18 +145,57 @@ async function handleTeamsSync(request: Request): Promise<NextResponse<TeamsSync
   const results: LeagueSyncResult[] = []
 
   for (const league of DISCOVERED_GAMES_LEAGUES) {
-    // NEW-10: query `/teams` by the league's Gamma API code when it differs
-    // from our registry slug (e.g. La Liga: query `?league=lal`, write
-    // `teams_cache(league='laliga')`). All writes and `revalidateTag` calls
-    // below stay keyed on `league.slug`.
-    const apiCode = league.teamsApiCode ?? league.slug
+    const url = `${getGammaBase()}/teams?league=${encodeURIComponent(league.slug)}&limit=50`
 
-    const fetched = await fetchAllTeams(apiCode)
-    if (!fetched.ok) {
+    let res: Response
+    try {
+      res = await fetch(url, {
+        cache: 'no-store',
+        headers: {
+          'User-Agent': 'WirePredictions/1.0 (+https://wirepredictions.vercel.app)',
+          'Accept': 'application/json',
+        },
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : 'unknown'
       results.push({
         league: league.slug,
-        status: fetched.kind === 'network' ? 'network_error' : 'schema_error',
-        error: fetched.error,
+        status: 'network_error',
+        error: message,
+      })
+      continue
+    }
+
+    if (!res.ok) {
+      results.push({
+        league: league.slug,
+        status: 'network_error',
+        error: `Gamma /teams returned HTTP ${res.status}`,
+      })
+      continue
+    }
+
+    let raw: unknown
+    try {
+      raw = await res.json()
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : 'unknown'
+      results.push({
+        league: league.slug,
+        status: 'schema_error',
+        error: `JSON parse failed: ${message}`,
+      })
+      continue
+    }
+
+    const parsed = TeamsResponseSchema.safeParse(raw)
+    if (!parsed.success) {
+      results.push({
+        league: league.slug,
+        status: 'schema_error',
+        error: `Zod validation failed: ${parsed.error.issues.length} issue(s)`,
       })
       continue
     }
@@ -242,7 +204,7 @@ async function handleTeamsSync(request: Request): Promise<NextResponse<TeamsSync
     let skippedCount = 0
     let errorCount = 0
 
-    for (const team of fetched.teams) {
+    for (const team of parsed.data) {
       if (isLeaguePlaceholder(team, league)) {
         skippedCount++
         continue
