@@ -9,6 +9,13 @@ import {
 } from '@/lib/polymarket/games-leagues'
 import { parseGameSlugTeams } from '@/lib/polymarket/synthesize-sports-card'
 
+const EVENT_CARD_PATH = resolve(
+  __dirname,
+  '..',
+  '..',
+  'src/app/[locale]/(platform)/(home)/_components/EventCardSportsMoneyline.tsx',
+)
+
 /**
  * Drift detector: the inline `DISCOVERED_GAME_SLUG_PATTERNS_INLINE` array in
  * `useEventPriceHistory.ts` MUST stay byte-identical with the league slug
@@ -71,6 +78,18 @@ describe('client-inline per-game slug patterns match server-side league registry
         `league ${league.slug} (${league.slugPattern.source}) should appear exactly once in the inline array`,
       ).toBe(1)
     })
+  })
+
+  it('the EventCardSportsMoneyline.tsx inline mirror matches the server slug-pattern source strings (NEW-8 drift-lock)', () => {
+    // EventCardSportsMoneyline is a 'use client' component and cannot import the
+    // server registry; it carries its own `DISCOVERED_GAME_SLUG_PATTERNS_INLINE`.
+    // (Read from source — importing the component drags next-intl navigation into
+    // the unit-test environment.) This locks that copy byte-identical with
+    // `DISCOVERED_GAMES_LEAGUES[*].slugPattern.source`.
+    const cardSource = readFileSync(EVENT_CARD_PATH, 'utf8')
+    const cardInline = extractInlinePatterns(cardSource)
+    const server = DISCOVERED_GAMES_LEAGUES.map(league => league.slugPattern.source)
+    expect(cardInline).toEqual(server)
   })
 
   it('the 4 Phase B v2 v3 soccer patterns appear in BOTH the registry and the inline mirror', () => {
