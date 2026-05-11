@@ -246,12 +246,15 @@ describe('/api/sync/polymarket-games-discovery', () => {
     expect(mockedRepo.markFailure).toHaveBeenCalledTimes(1)
     // Only the successful slug gets per-event revalidation. Stream 2
     // (Phase B v2 v3) ALSO adds two per-league list-route path busts when
-    // the league has any successful upsert — total: 1 per-event + 2
-    // per-league = 3 revalidatePath calls.
-    expect(mockedRevalidatePath).toHaveBeenCalledTimes(3)
+    // the league has any successful upsert, plus the homepage edge-HTML bust
+    // (`/` + `/en`) when anything synced — total: 1 per-event + 2 per-league
+    // + 2 homepage = 5 revalidatePath calls.
+    expect(mockedRevalidatePath).toHaveBeenCalledTimes(5)
     expect(mockedRevalidatePath).toHaveBeenCalledWith('/event/mlb-cin-chc-2026-05-05')
     expect(mockedRevalidatePath).toHaveBeenCalledWith('/en/sports/baseball/games')
     expect(mockedRevalidatePath).toHaveBeenCalledWith('/en/sports/mlb/games')
+    expect(mockedRevalidatePath).toHaveBeenCalledWith('/')
+    expect(mockedRevalidatePath).toHaveBeenCalledWith('/en')
   })
 
   it('includes archive count in response', async () => {

@@ -187,6 +187,12 @@ async function handleGamesRefreshSync(request: Request): Promise<NextResponse<Re
       revalidatePath(`/en/sports/${league.slug}/games`)
     }
   }
+  if (touchedLeagues.size > 0) {
+    // home-v2 sport sections render the refreshed prices/lifecycle flags too —
+    // bust the homepage edge HTML so the shelves stay current.
+    revalidatePath('/')
+    revalidatePath('/en')
+  }
 
   return NextResponse.json({
     ok: true,
