@@ -26,20 +26,29 @@ interface ParsedSlugTeams {
 /**
  * Local mirror of `parseGameSlugTeams` — kept here to avoid importing the
  * full sports-card module (which pulls server-only deps) for one helper.
- * Drift-locked by the synthesize-sports-card test suite covering its sibling.
+ * Kept in sync manually with `parseGameSlugTeams` in
+ * `synthesize-sports-card.ts`; no automated drift-lock exists for this mirror.
+ *
+ * `teamOrderConvention` controls which abbreviation slot is the away team.
+ * Defaults to `'away_first'` (US sports); soccer leagues pass `'home_first'`.
  */
-function parseSlugTeams(slug: string): ParsedSlugTeams | null {
+function parseSlugTeams(
+  slug: string,
+  teamOrderConvention: 'away_first' | 'home_first' = 'away_first',
+): ParsedSlugTeams | null {
   const parts = slug.split('-')
   if (parts.length !== 6) {
     return null
   }
-  const [, awayAbbr, homeAbbr, year, month, day] = parts as [string, string, string, string, string, string]
+  const [, firstAbbr, secondAbbr, year, month, day] = parts as [string, string, string, string, string, string]
   if (!/^\d{4}$/.test(year) || !/^\d{2}$/.test(month) || !/^\d{2}$/.test(day)) {
     return null
   }
-  if (!awayAbbr || !homeAbbr) {
+  if (!firstAbbr || !secondAbbr) {
     return null
   }
+  const awayAbbr = teamOrderConvention === 'home_first' ? secondAbbr : firstAbbr
+  const homeAbbr = teamOrderConvention === 'home_first' ? firstAbbr : secondAbbr
   return { awayAbbr, homeAbbr }
 }
 
@@ -103,7 +112,7 @@ export async function fetchLeagueEvents(
 
   const events = await Promise.all(
     rows.map(async (row): Promise<Event | null> => {
-      const parsedSlug = parseSlugTeams(row.slug)
+      const parsedSlug = parseSlugTeams(row.slug, leagueEntry.teamOrderConvention)
       if (!parsedSlug) {
         return null
       }
