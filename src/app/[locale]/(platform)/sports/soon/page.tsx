@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import type { SupportedLocale } from '@/i18n/locales'
 import { setRequestLocale } from 'next-intl/server'
-import { connection } from 'next/server'
+import { Suspense } from 'react'
 import SportsGamesCenter from '@/app/[locale]/(platform)/sports/_components/SportsGamesCenter'
 import { buildSportsGamesCards } from '@/app/[locale]/(platform)/sports/_utils/sports-games-data'
 import { EventRepository } from '@/lib/db/queries/event'
@@ -11,21 +11,17 @@ export const metadata: Metadata = {
   title: 'Sports Upcoming',
 }
 
-export default async function SportsSoonPage({ params }: PageProps<'/[locale]/sports/soon'>) {
-  // Render on-demand at request time — NOT statically prerendered at build
-  // time. The "upcoming sports games" data here is `EventRepository.listEvents`
-  // (the fat lateral-join event-list query); under Next.js's parallel 400+-page
-  // static-gen pass that query frequently failed to fill within the build-time
-  // prerender cache-fill timeout, producing repeated `USE_CACHE_TIMEOUT` build
-  // failures on this page (2026-05-12, after the soccer re-ship enlarged the
-  // page set). `connection()` opts the route out of static prerendering; the
-  // page renders fresh per request (also semantically correct for "upcoming"
-  // data — no stale cache window). Removed the module-level `'use cache'`
-  // directive (incompatible with `connection()`); the per-request fetch is a
-  // 2-query Promise.all, well within the post-pool-hardening `max: 5` budget.
-  await connection()
-
-  const { locale } = await params
+// Uncached data-fetching child rendered INSIDE a <Suspense> boundary (see
+// SportsSoonPage). This is the Next.js 16 Cache Components pattern for a route
+// that does uncached data access: the static shell (layout + page chrome + the
+// Suspense fallback) is prerenderable, and this async child — the slow
+// `EventRepository.listEvents` fat-lateral-join — is deferred/streamed at
+// request time instead of being prerendered at build time. That removes the
+// build-time `USE_CACHE_TIMEOUT` failure mode this page hit (2026-05-12) AND
+// the "Uncached data accessed outside of <Suspense>" error — and it's the
+// right behaviour for "upcoming sports games" data (always fresh, no stale
+// cache window). NOT wrapped in `'use cache'`.
+async function SportsSoonContent({ locale }: { locale: SupportedLocale }) {
   setRequestLocale(locale)
   const [{ data: events }, { data: layoutData }] = await Promise.all([
     EventRepository.listEvents({
@@ -35,7 +31,7 @@ export default async function SportsSoonPage({ params }: PageProps<'/[locale]/sp
       userId: '',
       bookmarked: false,
       status: 'active',
-      locale: locale as SupportedLocale,
+      locale,
       sportsSection: 'games',
     }),
     SportsMenuRepository.getLayoutData('sports'),
@@ -43,15 +39,37 @@ export default async function SportsSoonPage({ params }: PageProps<'/[locale]/sp
   const cards = buildSportsGamesCards(events ?? [])
 
   return (
+    <SportsGamesCenter
+      cards={cards}
+      sportSlug="soon"
+      sportTitle="Upcoming Sports Games"
+      pageMode="soon"
+      categoryTitleBySlug={layoutData?.h1TitleBySlug ?? {}}
+      vertical="sports"
+    />
+  )
+}
+
+export default async function SportsSoonPage({ params }: PageProps<'/[locale]/sports/soon'>) {
+  const { locale } = await params
+  setRequestLocale(locale)
+
+  return (
     <div key="sports-soon-page" className="contents">
-      <SportsGamesCenter
-        cards={cards}
-        sportSlug="soon"
-        sportTitle="Upcoming Sports Games"
-        pageMode="soon"
-        categoryTitleBySlug={layoutData?.h1TitleBySlug ?? {}}
-        vertical="sports"
-      />
+      <Suspense
+        fallback={(
+          <SportsGamesCenter
+            cards={[]}
+            sportSlug="soon"
+            sportTitle="Upcoming Sports Games"
+            pageMode="soon"
+            categoryTitleBySlug={{}}
+            vertical="sports"
+          />
+        )}
+      >
+        <SportsSoonContent locale={locale as SupportedLocale} />
+      </Suspense>
     </div>
   )
 }
