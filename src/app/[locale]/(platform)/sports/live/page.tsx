@@ -1,8 +1,7 @@
-'use cache'
-
 import type { Metadata } from 'next'
 import type { SupportedLocale } from '@/i18n/locales'
 import { getExtracted, setRequestLocale } from 'next-intl/server'
+import { connection } from 'next/server'
 import SportsGamesCenter from '@/app/[locale]/(platform)/sports/_components/SportsGamesCenter'
 import { buildSportsGamesCards } from '@/app/[locale]/(platform)/sports/_utils/sports-games-data'
 import { EventRepository } from '@/lib/db/queries/event'
@@ -10,6 +9,8 @@ import { SportsMenuRepository } from '@/lib/db/queries/sports-menu'
 import { loadRuntimeThemeState } from '@/lib/theme-settings'
 
 export async function generateMetadata({ params }: PageProps<'/[locale]/sports/live'>): Promise<Metadata> {
+  await connection()
+
   const { locale } = await params
   setRequestLocale(locale)
 
@@ -25,6 +26,15 @@ export async function generateMetadata({ params }: PageProps<'/[locale]/sports/l
 }
 
 export default async function SportsLivePage({ params }: PageProps<'/[locale]/sports/live'>) {
+  // Render on-demand at request time — NOT statically prerendered at build
+  // time. Same rationale as `sports/soon/page.tsx`: the live/upcoming sports
+  // games data is `EventRepository.listEvents` (the fat lateral-join), which
+  // is unreliable to fill within Next.js's build-time prerender timeout under
+  // the parallel static-gen pass. `connection()` opts the route out of static
+  // prerendering (and is the right call for "live" data anyway). Removed the
+  // module-level `'use cache'` (incompatible with `connection()`).
+  await connection()
+
   const { locale } = await params
   setRequestLocale(locale)
   const [{ data: events }, { data: layoutData }] = await Promise.all([
