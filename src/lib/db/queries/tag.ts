@@ -325,7 +325,23 @@ async function getVisibleActiveEventCountsByTagSlugs(tagSlugs: string[]): Promis
 }
 
 export const TagRepository = {
-  async getMainTags(locale: SupportedLocale = DEFAULT_LOCALE): Promise<MainTagsResult> {
+  /**
+   * Cached main-nav builder. Issue 1 fix: on a hard DB error this THROWS
+   * instead of returning a `{ data: null, error }` sentinel. A normal return
+   * would be persisted by `'use cache'` for the cache TTL, which made the top
+   * nav collapse to just the hardcoded tabs (Trending / New / More) for ~5–15
+   * min after a transient Supabase timeout. Throwing keeps Cache Components
+   * from caching the failed read so the next request retries the DB. The
+   * public `getMainTags` wrapper below converts the throw back into the
+   * historical sentinel so consumers (`(platform)/layout.tsx`, the admin
+   * main-tags route) keep degrading gracefully.
+   *
+   * Note: the *partial*-degradation paths inside (subcategory view error,
+   * translation lookups) still return tags-with-empty-childs — that is a
+   * correct, cacheable result (right tabs, missing submenus), not the bug
+   * class fixed here.
+   */
+  async getMainTagsCached(locale: SupportedLocale = DEFAULT_LOCALE): Promise<MainTagsResult> {
     'use cache'
     cacheTag(cacheTags.mainTags(locale))
     const { data: mainTagsResult, error } = await runQuery(async () => {
@@ -353,7 +369,9 @@ export const TagRepository = {
 
     if (error || !mainTagsResult) {
       const errorMessage = typeof error === 'string' ? error : 'Unknown error'
-      return { data: null, error: errorMessage, globalChilds: [] }
+      // Throw rather than return — a returned sentinel would be cached by
+      // `'use cache'` and collapse the nav for the cache TTL. See class doc.
+      throw new Error(`Failed to load main category tags: ${errorMessage}`)
     }
 
     const mainVisibleTags = mainTagsResult
@@ -476,7 +494,9 @@ export const TagRepository = {
     )
 
     if (translationError) {
-      return { data: null, error: translationError, globalChilds: [] }
+      // Throw rather than return — see class doc; a cached null-data sentinel
+      // would collapse the nav for the cache TTL.
+      throw new Error(`Failed to load main category translations: ${translationError}`)
     }
 
     const grouped = new Map<string, { name: string, slug: string, count: number }[]>()
@@ -586,6 +606,24 @@ export const TagRepository = {
       .map(({ name, slug, count }) => ({ name, slug, count }))
 
     return { data: enhanced, error: null, globalChilds }
+  },
+
+  /**
+   * Public main-nav builder. NON-cached: delegates to the cached
+   * `getMainTagsCached` and, if that throws on a transient DB failure, degrades
+   * to the historical `{ data: null, error, globalChilds: [] }` sentinel for
+   * THIS request only — so the nav briefly shows just the hardcoded tabs rather
+   * than serving a stale collapsed-nav shard for the cache TTL. The underlying
+   * cached fetcher retries the DB on the next call.
+   */
+  async getMainTags(locale: SupportedLocale = DEFAULT_LOCALE): Promise<MainTagsResult> {
+    try {
+      return await this.getMainTagsCached(locale)
+    }
+    catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load main category tags.'
+      return { data: null, error: errorMessage, globalChilds: [] }
+    }
   },
 
   async listTags({

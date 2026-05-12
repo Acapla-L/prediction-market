@@ -5,7 +5,13 @@ export async function runQuery<T>(queryFn: () => Promise<QueryResult<T>>): Promi
   try {
     return await queryFn()
   }
-  catch {
+  catch (e) {
+    // Preserve the original error context (postgres.js attaches `.query` /
+    // `.params` for "Failed query" errors and `.code` / `.severity_local`
+    // for backend errors) in the server logs. The generic fallback below
+    // intentionally hides it from the API response, but post-mortems need
+    // the SQL + Postgres error code. (P0-incident follow-up.)
+    console.error('[runQuery] DB query failed:', e)
     return {
       data: null,
       error: DEFAULT_ERROR_MESSAGE,

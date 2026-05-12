@@ -521,9 +521,86 @@ function buildThemeSiteIdentity(config: NormalizedThemeSiteConfig): ThemeSiteIde
   }
 }
 
+/**
+ * Issue 1 fix — degraded-render fallback palette.
+ *
+ * When the `settings` table read transiently fails (or the table has no theme
+ * rows yet), the runtime theme falls back to a default. That default MUST be
+ * the WagerWire / WirePredictions palette (cyan `#02FDDD` accent, near-black
+ * surfaces) — never the Kuest-blue `'default'` preset bare. These values mirror
+ * the live `theme.dark_json` / `theme.light_json` rows; the DB remains the
+ * source of truth, this is only the brief degraded-window fallback so branding
+ * never flickers to Kuest. Keep in sync if the WagerWire brand palette changes.
+ */
+const WAGERWIRE_FALLBACK_DARK_OVERRIDES: ThemeOverrides = {
+  yes: '#34D399',
+  'yes-foreground': '#34D399',
+  no: '#EF4444',
+  'no-foreground': '#EF4444',
+  background: '#0D0D0D',
+  foreground: '#FFFFFF',
+  card: '#1A1A1A',
+  'card-foreground': '#FFFFFF',
+  popover: '#141414',
+  'popover-foreground': '#FFFFFF',
+  primary: '#02FDDD',
+  'primary-foreground': '#0D0D0D',
+  secondary: '#1E1E1E',
+  'secondary-foreground': '#FFFFFF',
+  muted: '#1A1A1A',
+  'muted-foreground': '#999999',
+  accent: '#262626',
+  'accent-foreground': '#FFFFFF',
+  destructive: '#EF4444',
+  'destructive-foreground': '#FFFFFF',
+  border: '#2A2A2A',
+  input: '#141414',
+  ring: '#02FDDD',
+  'chart-1': '#8B5CF6',
+  'chart-2': '#4A9EE5',
+  'chart-3': '#F59E0B',
+  'chart-4': '#EC4899',
+  'chart-5': '#F97316',
+}
+
+const WAGERWIRE_FALLBACK_LIGHT_OVERRIDES: ThemeOverrides = {
+  yes: '#16A34A',
+  'yes-foreground': '#16A34A',
+  no: '#DC2626',
+  'no-foreground': '#DC2626',
+  background: '#FFFFFF',
+  foreground: '#0D0D0D',
+  card: '#F9F9F9',
+  'card-foreground': '#0D0D0D',
+  popover: '#FFFFFF',
+  'popover-foreground': '#0D0D0D',
+  primary: '#02FDDD',
+  'primary-foreground': '#FFFFFF',
+  secondary: '#F3F3F3',
+  'secondary-foreground': '#0D0D0D',
+  muted: '#F5F5F5',
+  'muted-foreground': '#666666',
+  accent: '#F0F0F0',
+  'accent-foreground': '#0D0D0D',
+  destructive: '#DC2626',
+  'destructive-foreground': '#FFFFFF',
+  border: '#E5E5E5',
+  input: '#F5F5F5',
+  ring: '#02FDDD',
+  'chart-1': '#7C3AED',
+  'chart-2': '#2563EB',
+  'chart-3': '#D97706',
+  'chart-4': '#DB2777',
+  'chart-5': '#EA580C',
+}
+
 function buildDefaultThemeState(): RuntimeThemeState {
   return {
-    theme: buildResolvedThemeConfig(DEFAULT_THEME_PRESET_ID),
+    theme: buildResolvedThemeConfig(
+      DEFAULT_THEME_PRESET_ID,
+      WAGERWIRE_FALLBACK_LIGHT_OVERRIDES,
+      WAGERWIRE_FALLBACK_DARK_OVERRIDES,
+    ),
     site: createDefaultThemeSiteIdentity(),
     source: 'default',
   }
@@ -784,7 +861,24 @@ export function validateThemeSiteSettingsInput(params: {
   })
 }
 
-export async function loadRuntimeThemeState(): Promise<RuntimeThemeState> {
+/**
+ * Pure WagerWire / WirePredictions degraded-render fallback. Exported so callers
+ * outside a `'use cache'` boundary (and tests) can reference the exact fallback
+ * shape. Always WirePredictions branding — never Kuest. See issue 1 fix.
+ */
+export function loadRuntimeThemeStateDefaults(): RuntimeThemeState {
+  return buildDefaultThemeState()
+}
+
+/**
+ * Cached runtime theme resolver. Issue 1 fix: on a settings-DB error this
+ * THROWS instead of returning the fallback. Next.js Cache Components does not
+ * persist the result of a `'use cache'` function that throws, so the next
+ * request retries the DB rather than serving a poisoned (previously Kuest)
+ * shard for the cache TTL. The non-cached `loadRuntimeThemeState` wrapper below
+ * turns that throw into the WagerWire default for callers that need a value.
+ */
+export async function loadRuntimeThemeStateCached(): Promise<RuntimeThemeState> {
   'use cache'
   cacheTag(cacheTags.settings)
 
@@ -792,7 +886,9 @@ export async function loadRuntimeThemeState(): Promise<RuntimeThemeState> {
   const { data: allSettings, error } = await SettingsRepository.getSettings()
 
   if (error) {
-    return defaults
+    // Do NOT return here — a normal return would be cached by `'use cache'`.
+    // Throwing keeps Next.js from persisting the degraded result.
+    throw new Error('Failed to load runtime theme settings.')
   }
 
   const themeSettings = getThemeSettingsGroup(allSettings ?? undefined)
@@ -871,6 +967,24 @@ export async function loadRuntimeThemeState(): Promise<RuntimeThemeState> {
     theme,
     site,
     source: normalizedTheme?.data || normalizedSite?.data ? 'settings' : 'default',
+  }
+}
+
+/**
+ * Public runtime theme resolver. NON-cached on purpose: it delegates to the
+ * cached `loadRuntimeThemeStateCached` and, if that throws (transient settings
+ * DB failure), degrades to the WagerWire / WirePredictions default for THIS
+ * request only — never Kuest, never a sticky cached shard. Callers that are
+ * themselves inside a `'use cache'` boundary will cache whatever this returns;
+ * since the degraded value is WirePredictions-branded that is harmless, and the
+ * underlying cached fetcher retries the DB on the next call.
+ */
+export async function loadRuntimeThemeState(): Promise<RuntimeThemeState> {
+  try {
+    return await loadRuntimeThemeStateCached()
+  }
+  catch {
+    return buildDefaultThemeState()
   }
 }
 

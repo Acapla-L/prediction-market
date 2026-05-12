@@ -10,6 +10,9 @@ import {
   serializeGamesDiscoveryPayload,
 } from '@/lib/polymarket/normalize-games-discovery-payload'
 
+// Long-running cron sync — match the legacy Kuest sync routes' ceiling.
+export const maxDuration = 300
+
 interface RefreshSyncResult {
   slug: string
   status: 'ok' | 'gamma_404' | 'normalize_skipped' | 'upsert_error' | 'network_error' | 'unknown_league'
@@ -184,6 +187,9 @@ async function handleGamesRefreshSync(request: Request): Promise<NextResponse<Re
       revalidatePath(`/en/sports/${league.slug}/games`)
     }
   }
+  // NOTE: do NOT add `revalidatePath('/')` / `revalidatePath('/en')` here — the
+  // bare-homepage bust on every refresh cycle caused the 2026-05-11 cache-thrash
+  // cascade. The targeted per-slug + per-league-list busts above are sufficient.
 
   return NextResponse.json({
     ok: true,

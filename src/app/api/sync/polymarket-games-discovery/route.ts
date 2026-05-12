@@ -10,6 +10,9 @@ import {
   serializeGamesDiscoveryPayload,
 } from '@/lib/polymarket/normalize-games-discovery-payload'
 
+// Long-running cron sync — match the legacy Kuest sync routes' ceiling.
+export const maxDuration = 300
+
 interface SlugSyncResult {
   slug: string
   league: string
@@ -214,6 +217,12 @@ async function handleGamesDiscoverySync(request: Request): Promise<NextResponse<
   if (successfulSlugs.length > 0) {
     revalidateTag(cacheTags.discoveredGamesSidebar, 'max')
     revalidateTag(cacheTags.eventsList, 'max')
+    // NOTE: do NOT add `revalidatePath('/')` / `revalidatePath('/en')` here —
+    // the bare-homepage bust on every sync cycle caused the 2026-05-11 cache-
+    // thrash cascade. The targeted per-slug + per-league-list busts above plus
+    // the `discoveredGamesSidebar` / `eventsList` tag busts are sufficient; the
+    // home-v2 sport shelves pick up new leagues on the next natural
+    // revalidation window.
   }
 
   return NextResponse.json({

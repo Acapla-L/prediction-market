@@ -55,6 +55,12 @@ export interface DiscoveredGamesLeague {
    */
   applyLogoColorPlaceholderHeuristic?: boolean
   /**
+   * Code Polymarket's `GET /teams?league=<X>` endpoint expects, when it differs
+   * from `slug`. La Liga: registry slug 'laliga' but /teams wants 'lal'. UCol
+   * (deferred): 'col'. Defaults to `slug` when omitted.
+   */
+  teamsApiCode?: string
+  /**
    * Whether `event.teams[0]` is the away team or the home team.
    * - `'away_first'` for US sports (MLB/NBA/NHL/WNBA/NFL/UFC) — slug + title
    *   list the visiting team first (e.g. `mlb-mil-stl-...` = "Milwaukee vs.
@@ -104,7 +110,58 @@ export const DISCOVERED_GAMES_LEAGUES: readonly DiscoveredGamesLeague[] = [
     applyLogoColorPlaceholderHeuristic: true,
     teamOrderConvention: 'away_first',
   },
+  // Phase B v2 v3 (soccer, 2026-05-11): EPL, La Liga, MLS, FIFA WC 2026.
+  // teamOrderConvention 'home_first' — soccer slugs/titles list the home team
+  // first. No placeholderAbbreviations / applyLogoColorPlaceholderHeuristic for
+  // soccer leagues (no all-star roster placeholders observed in /teams). EPL/MLS
+  // use their slug prefix as the /teams code; La Liga's /teams code is 'lal'
+  // (the `?league=laliga` query returns empty), so it carries `teamsApiCode`.
+  {
+    slug: 'epl',
+    seriesId: '10188',
+    slugPattern: /^epl-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
+    mainTag: 'epl',
+    sportRouteSlug: 'soccer',
+    teamOrderConvention: 'home_first',
+    subEventFilter: slug => !/-(?:more-markets|halftime-result|exact-score|player-props|total-corners)$/.test(slug),
+  },
+  {
+    slug: 'laliga',
+    seriesId: '10193',
+    slugPattern: /^lal-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
+    mainTag: 'laliga',
+    sportRouteSlug: 'soccer',
+    teamsApiCode: 'lal',
+    teamOrderConvention: 'home_first',
+    subEventFilter: slug => !/-(?:more-markets|halftime-result|exact-score|player-props|total-corners)$/.test(slug),
+  },
+  {
+    slug: 'mls',
+    seriesId: '10189',
+    slugPattern: /^mls-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
+    mainTag: 'mls',
+    sportRouteSlug: 'soccer',
+    teamOrderConvention: 'home_first',
+    subEventFilter: slug => !/-(?:more-markets|halftime-result|exact-score|player-props|total-corners)$/.test(slug),
+  },
+  {
+    slug: 'fifwc',
+    seriesId: '11433',
+    slugPattern: /^fifwc-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$/,
+    mainTag: 'fifwc',
+    sportRouteSlug: 'fifa-world-cup',
+    teamOrderConvention: 'home_first',
+  },
 ] as const
+
+/**
+ * Friendly display titles for discovery sports keyed by registry slug. Used as
+ * the h1 fallback when no `sports_menu_items` row exists (per Allan's decision
+ * #4 — a small map instead of a DB migration). Consumed by Step 3 / NEW-9.
+ */
+export const FRIENDLY_DISCOVERY_TITLES: Readonly<Record<string, string>> = {
+  fifwc: 'FIFA World Cup 2026',
+} as const
 
 export type DiscoveredGamesLeagueSlug = (typeof DISCOVERED_GAMES_LEAGUES)[number]['slug']
 
@@ -136,6 +193,18 @@ export function getLeagueBySportRouteSlug(
   sportRouteSlug: string,
 ): DiscoveredGamesLeague | undefined {
   return DISCOVERED_GAMES_LEAGUES.find(league => league.sportRouteSlug === sportRouteSlug)
+}
+
+/**
+ * Returns ALL league entries whose `sportRouteSlug` matches `sportRouteSlug`,
+ * in registry order. A single sport route (e.g. `'soccer'`) can map to multiple
+ * leagues (EPL + La Liga + MLS); `getLeagueBySportRouteSlug` only returns the
+ * first. Used by the soccer list-route dispatch to aggregate across leagues.
+ */
+export function getLeaguesBySportRouteSlug(
+  sportRouteSlug: string,
+): readonly DiscoveredGamesLeague[] {
+  return DISCOVERED_GAMES_LEAGUES.filter(league => league.sportRouteSlug === sportRouteSlug)
 }
 
 /**

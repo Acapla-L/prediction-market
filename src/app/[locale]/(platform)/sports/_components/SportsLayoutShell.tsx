@@ -214,6 +214,33 @@ export default function SportsLayoutShell({
     ? 'min-[1200px]:max-w-[calc(100%-22.75rem)]'
     : ''
 
+  // Reset the inner sports scroll panes to the top on every route change within
+  // the shared `sports/` layout (and on first mount — which handles the initial
+  // mid-page landing reported when navigating in from "View all" / nav links).
+  //
+  // Why this is needed: at viewport width >= 1200px the document does not
+  // scroll — the `<section data-sports-scroll-pane="center">` (rendered by
+  // SportsGamesCenter / SportsEventCenter) is the scroll context, with a
+  // sibling `<aside data-sports-scroll-pane="aside">` order-panel rail. Next.js
+  // App Router scroll restoration (and a default `<Link>`, which is
+  // `scroll={true}`) only resets `window` / `document.documentElement`, not an
+  // arbitrary nested `overflow-y-auto` element — and that nested node persists
+  // across navigations within this layout segment, so its `scrollTop` carries
+  // over. This mirrors the document-level reset `<Link>` already provides,
+  // applied to the nested scrollers.
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return
+    }
+
+    for (const pane of ['center', 'aside'] as const) {
+      const element = document.querySelector<HTMLElement>(`[data-sports-scroll-pane="${pane}"]`)
+      if (element) {
+        element.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+      }
+    }
+  }, [pathname])
+
   useEffect(() => {
     if (typeof window === 'undefined' || !useIndependentColumns) {
       return

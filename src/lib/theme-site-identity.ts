@@ -18,15 +18,18 @@ export type ThemeSiteSocialLinkField = typeof THEME_SITE_SOCIAL_LINK_FIELDS[numb
 const THEME_SITE_LOGO_MODE_SET = new Set<string>(THEME_SITE_LOGO_MODES)
 const DEFAULT_SITE_NAME_FALLBACK = 'WirePredictions'
 const DEFAULT_SITE_DESCRIPTION_FALLBACK = 'Decentralized Prediction Markets'
+/**
+ * Default site logo used when no logo is configured in the `settings` table,
+ * or when the settings read transiently fails. This MUST stay WirePredictions /
+ * WagerWire branded — never the Kuest "K" lettermark. A WirePredictions
+ * wordmark in the WagerWire cyan accent (#02FDDD) is self-contained (no storage
+ * round-trip) and unmistakably ours during a degraded render. Issue 1 fix:
+ * branding must never flicker to Kuest.
+ */
 const DEFAULT_SITE_LOGO_SVG_FALLBACK = `
-<svg viewBox="0 0 518 414" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-    <g id="Page-1" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
-        <g id="Transparent" transform="translate(-3204.425121, 0.000000)" fill="#CDFF00">
-            <g id="k-transparent" transform="translate(3204.425121, 0.000000)">
-                <path d="M237.172069,0 L343.777568,0 C354.823263,0 363.777568,8.954305 363.777568,20 L363.777568,175.074942 C363.777568,186.120637 372.731873,195.074942 383.777568,195.074942 L498,195.074942 C509.045695,195.074942 518,204.029247 518,215.074942 L518,394 C518,405.045695 509.045695,414 498,414 L401.842574,414 C355.099082,414 317.205994,376.106912 317.205994,329.36342 L317.205994,264.72684 C317.205994,253.681145 308.251689,244.72684 297.205994,244.72684 L284.301306,244.72684 C278.232047,244.72684 272.491137,247.482832 268.695367,252.218656 L145.032079,406.508184 C141.236309,411.244008 135.495399,414 129.42614,414 L17,414 C7.611159,414 0,406.388841 0,397 L0,289.368948 C0,285.034088 1.4823,280.829557 4.2009,277.453134 L221.594069,7.457038 C225.390585,2.741873 231.118449,0 237.172069,0 Z" id="Path"></path>
-            </g>
-        </g>
-    </g>
+<svg viewBox="0 0 260 40" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="30" font-family="Inter, Helvetica, Arial, sans-serif" font-size="30" font-weight="700" letter-spacing="0.5" fill="#02FDDD">WIRE</text>
+  <text x="92" y="30" font-family="Inter, Helvetica, Arial, sans-serif" font-size="30" font-weight="300" letter-spacing="0.5" fill="#FFFFFF">PREDICTIONS</text>
 </svg>
 `
 
