@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('next/cache', () => ({
   cacheTag: (...args: any[]) => mocks.cacheTag(...args),
+  cacheLife: () => {},
 }))
 
 vi.mock('@/lib/db/queries/settings', () => ({

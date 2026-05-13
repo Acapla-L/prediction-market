@@ -11,6 +11,13 @@ import {
   serializeDiscoveryPayload,
 } from '@/lib/polymarket/normalize-discovery-payload'
 
+// Long-running cron sync — match the legacy Kuest sync routes' ceiling
+// (`polymarket-games-discovery`, `polymarket-games-refresh`, `polymarket-teams`
+// all set this). Without it, the route 504s at the default function timeout
+// under Supavisor pool contention (observed 2026-05-12T01:07). `maxDuration` is
+// the one route-segment config still tolerated under `cacheComponents`.
+export const maxDuration = 300
+
 interface SlugSyncResult {
   slug: string
   status: 'ok' | 'gamma_404' | 'parse_error' | 'network_error' | 'upsert_error'

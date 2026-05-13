@@ -16,21 +16,29 @@ function createDb(): DrizzleDb {
     throw new Error('POSTGRES_URL is not set. Configure the database env vars to enable DB features.')
   }
 
-  // Fix A3 (connection-pool hardening 2026-05-11):
-  //   - `max: 5` caps each warm Vercel lambda's footprint on the Supabase
-  //     Supavisor :6543 transaction pooler. Saturation math = 200 (Supavisor
-  //     client cap) / max. With the default `max: 10`, ~20 warm lambdas
-  //     saturate the entire pooler; at `max: 5`, ~40 do. Pair with A1+A2
-  //     (cold-render fan-out reduction) so per-render query count stays small
-  //     enough that an in-instance pool of 5 doesn't itself bottleneck.
-  //   - `connection.statement_timeout: '20s'` makes the per-connection 20s
-  //     statement timeout deliberate (was previously an incidental
-  //     Supavisor/Drizzle default seen in `pg_stat_activity`). A stuck query
-  //     can no longer pin a pool slot for the full Next.js 60s `'use cache'`
-  //     fill timeout — postgres kills it at 20s and the slot frees.
+  // Connection-pool config (Fix A3 2026-05-11, revised Fix F-3 2026-05-12):
+  //   - `max: 10` — the postgres.js / pg default, and what Vercel + Supabase
+  //     recommend for serverless functions under Fluid Compute (one instance
+  //     serves many concurrent invocations sharing this module-scoped pool;
+  //     `max: 1` is an anti-pattern and `max: 5` was too conservative —
+  //     ~2-3 concurrent cold page renders saturated it). Supavisor :6543
+  //     transaction-pooler cap is 200 clients; 10 × ~4 warm instances = 40,
+  //     even a 12-instance bot crawl = 120 — well clear of 200. The original
+  //     EMAXCONN trigger (a home-v2 cold render fanning out ~58 simultaneous
+  //     checkouts) was fixed by Fix A1's batched team-cache lookup, and the
+  //     `revalidatePath('/')` cron thrash was removed, so the small-pool
+  //     hardening is no longer load-bearing.
+  //     NOTE: postgres.js has NO pool-checkout-wait timeout — a query that
+  //     can't get a slot queues until the function dies. `max` is the only
+  //     lever here; the real mitigations are reducing cold-render demand
+  //     (Fix F-1) and `'use cache: remote'` (follow-up).
+  //   - `connection.statement_timeout: 20_000` (20s) makes the per-connection
+  //     statement timeout deliberate. A stuck query can't pin a pool slot for
+  //     the full Next.js `'use cache'` fill timeout — postgres kills it at 20s
+  //     and the slot frees.
   const client = globalForDb.client ?? postgres(url, {
     prepare: false,
-    max: 5,
+    max: 10,
     connect_timeout: 10,
     idle_timeout: 20,
     connection: {

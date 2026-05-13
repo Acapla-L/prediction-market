@@ -16,6 +16,7 @@ import {
 // is a no-op under the Vitest Node environment.
 vi.mock('next/cache', () => ({
   cacheTag: vi.fn(),
+  cacheLife: vi.fn(),
 }))
 
 // Mock the repository so we control the row returned without touching the DB.

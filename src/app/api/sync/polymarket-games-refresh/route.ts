@@ -1,10 +1,8 @@
-import { revalidatePath, revalidateTag } from 'next/cache'
 import { connection, NextResponse } from 'next/server'
 import { isCronAuthorized } from '@/lib/auth-cron'
-import { cacheTags } from '@/lib/cache-tags'
 import { DiscoveredGamesRepository } from '@/lib/db/queries/discovered-games'
 import { fetchPolymarketGammaEvent } from '@/lib/polymarket/client'
-import { getLeagueBySlug, getLeagueForGameSlug } from '@/lib/polymarket/games-leagues'
+import { getLeagueForGameSlug } from '@/lib/polymarket/games-leagues'
 import {
   normalizeGamesDiscoveryPayload,
   serializeGamesDiscoveryPayload,
@@ -162,34 +160,26 @@ async function handleGamesRefreshSync(request: Request): Promise<NextResponse<Re
     }
   }
 
-  for (const slug of successfulSlugs) {
-    revalidateTag(cacheTags.discoveredGame(slug), 'max')
-    revalidatePath(`/event/${slug}`)
-  }
-
-  // Stream 2 (Phase B v2 v3): bust per-league list-route cache for every
-  // league touched by this refresh run, so /sports/{sportRouteSlug}/games
-  // surfaces fresh prices/lifecycle flags. Track unique leagues from the
-  // successful slugs (avoids redundant revalidations when many games for
-  // the same league refresh in the same run).
-  const touchedLeagues = new Set<string>()
-  for (const slug of successfulSlugs) {
-    const league = getLeagueForGameSlug(slug)
-    if (league) {
-      touchedLeagues.add(league.slug)
-    }
-  }
-  for (const leagueSlug of touchedLeagues) {
-    revalidateTag(cacheTags.discoveredGamesList(leagueSlug), 'max')
-    const league = getLeagueBySlug(leagueSlug)
-    if (league) {
-      revalidatePath(`/en/sports/${league.sportRouteSlug}/games`)
-      revalidatePath(`/en/sports/${league.slug}/games`)
-    }
-  }
-  // NOTE: do NOT add `revalidatePath('/')` / `revalidatePath('/en')` here — the
-  // bare-homepage bust on every refresh cycle caused the 2026-05-11 cache-thrash
-  // cascade. The targeted per-slug + per-league-list busts above are sufficient.
+  // Fix F-1 (2026-05-12): this every-5-min route does NOT invalidate any
+  // caches. It only writes fresh prices/lifecycle flags into the
+  // `discovered_polymarket_games` rows; the next time a cached surface
+  // revalidates (via the hourly `polymarket-games-discovery` sync's
+  // `revalidateTag(discoveredGame/discoveredGamesList, 'max')` busts, or the
+  // function's own `cacheLife` time-based revalidate) it picks up the new
+  // values. Previously this route also called `revalidateTag(...,'max')` +
+  // `revalidatePath('/event/${slug}')` per refreshed game and
+  // `revalidateTag(discoveredGamesList(league),'max')` + per-league
+  // `revalidatePath('/en/sports/.../games')` per touched league — every 5
+  // minutes. That kept every in-window per-game page and every
+  // `/sports/.../games` list page perpetually cold (the `revalidatePath`
+  // calls force a blocking re-render; the `revalidateTag(...,'max')` SWR busts
+  // mean every visit-after-stale kicks a background revalidation), so an
+  // intent-prefetch fan-out (scrolling a card grid → ~25 prefetch RSC renders
+  // of cold pages) exhausted the postgres.js pool → the 2026-05-12 cascade.
+  // Per-game DETAIL pages still show live prices client-side (CLOB hooks);
+  // SSR'd shelf/list-card prices are now ~15-min-to-1-hr fresh — accepted
+  // tradeoff. Lifecycle changes (new games, closed games) are picked up by the
+  // hourly discovery sync, which retains all its busts.
 
   return NextResponse.json({
     ok: true,

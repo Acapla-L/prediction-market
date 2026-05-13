@@ -1,7 +1,7 @@
 import type { CustomJavascriptCodeConfig } from '@/lib/custom-javascript-code'
 import type { ResolvedThemeConfig, ThemeOverrides, ThemePresetId, ThemeRadius } from '@/lib/theme'
 import type { ThemeSiteIdentity, ThemeSiteLogoMode } from '@/lib/theme-site-identity'
-import { cacheTag } from 'next/cache'
+import { cacheLife, cacheTag } from 'next/cache'
 import { cacheTags } from '@/lib/cache-tags'
 import { ZERO_ADDRESS } from '@/lib/contracts'
 import { validateCustomJavascriptCodesJson } from '@/lib/custom-javascript-code'
@@ -881,6 +881,10 @@ export function loadRuntimeThemeStateDefaults(): RuntimeThemeState {
 export async function loadRuntimeThemeStateCached(): Promise<RuntimeThemeState> {
   'use cache'
   cacheTag(cacheTags.settings)
+  // Theme settings change only on admin actions, which bust `cacheTags.settings`
+  // via `updateTag`. `'max'` makes the cache effectively tag-driven (revalidate
+  // ~30d) — no redundant 15-min time-based background re-renders of this DB read.
+  cacheLife('max')
 
   const defaults = buildDefaultThemeState()
   const { data: allSettings, error } = await SettingsRepository.getSettings()
