@@ -1,6 +1,6 @@
 import type { QueryResult } from '@/types'
 import { sql } from 'drizzle-orm'
-import { cacheTag, updateTag } from 'next/cache'
+import { cacheLife, cacheTag, updateTag } from 'next/cache'
 import { cacheTags } from '@/lib/cache-tags'
 import { DEFAULT_ERROR_MESSAGE } from '@/lib/constants'
 import { settings } from '@/lib/db/schema/settings/tables'
@@ -22,6 +22,10 @@ type SettingsByGroup = Record<string, Record<string, { value: string, updated_at
 async function getSettingsCached(): Promise<SettingsByGroup> {
   'use cache'
   cacheTag(cacheTags.settings)
+  // Settings change only on admin actions (which bust `cacheTags.settings` via
+  // `updateTag`). `'max'` makes this tag-driven — no 15-min time-based
+  // background re-renders of this DB read.
+  cacheLife('max')
 
   const data = await db.select({
     group: settings.group,

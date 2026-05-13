@@ -11,6 +11,7 @@ import { loadRuntimeThemeState } from '@/lib/theme-settings'
 // we can assert which tags were applied.
 vi.mock('next/cache', () => ({
   cacheTag: vi.fn(),
+  cacheLife: vi.fn(),
   unstable_cache: vi.fn((fn: () => unknown) => fn),
   revalidateTag: vi.fn(),
 }))

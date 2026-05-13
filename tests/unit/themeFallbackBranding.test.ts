@@ -61,7 +61,7 @@ describe('issue 1 — loadRuntimeThemeState does not cache the DB-error fallback
   })
 
   it('the cached fetcher THROWS when the settings DB query errors (so Next.js does not cache the degraded result)', async () => {
-    vi.doMock('next/cache', () => ({ cacheTag: vi.fn() }))
+    vi.doMock('next/cache', () => ({ cacheTag: vi.fn(), cacheLife: vi.fn() }))
     vi.doMock('@/lib/db/queries/settings', () => ({
       SettingsRepository: {
         getSettings: vi.fn().mockResolvedValue({ data: null, error: 'Failed to fetch settings.' }),
@@ -73,7 +73,7 @@ describe('issue 1 — loadRuntimeThemeState does not cache the DB-error fallback
   })
 
   it('the public non-cached loadRuntimeThemeState catches the throw and returns WagerWire defaults', async () => {
-    vi.doMock('next/cache', () => ({ cacheTag: vi.fn() }))
+    vi.doMock('next/cache', () => ({ cacheTag: vi.fn(), cacheLife: vi.fn() }))
     vi.doMock('@/lib/db/queries/settings', () => ({
       SettingsRepository: {
         getSettings: vi.fn().mockResolvedValue({ data: null, error: 'Failed to fetch settings.' }),
@@ -90,7 +90,7 @@ describe('issue 1 — loadRuntimeThemeState does not cache the DB-error fallback
   })
 
   it('the cached fetcher resolves normally when the DB read succeeds (happy path unchanged)', async () => {
-    vi.doMock('next/cache', () => ({ cacheTag: vi.fn() }))
+    vi.doMock('next/cache', () => ({ cacheTag: vi.fn(), cacheLife: vi.fn() }))
     vi.doMock('@/lib/db/queries/settings', () => ({
       SettingsRepository: {
         getSettings: vi.fn().mockResolvedValue({ data: {}, error: null }),
@@ -111,6 +111,7 @@ describe('issue 1 — getMainTags does not cache the DB-error fallback (goal a)'
   it('getMainTagsCached THROWS when the main-tags DB query errors (so Next.js does not cache the collapsed nav)', async () => {
     vi.doMock('next/cache', () => ({
       cacheTag: vi.fn(),
+      cacheLife: vi.fn(),
       revalidatePath: vi.fn(),
     }))
     vi.doMock('@/lib/db/utils/run-query', () => ({
@@ -124,6 +125,7 @@ describe('issue 1 — getMainTags does not cache the DB-error fallback (goal a)'
   it('the public getMainTags catches the throw and returns the graceful null-data sentinel for one request', async () => {
     vi.doMock('next/cache', () => ({
       cacheTag: vi.fn(),
+      cacheLife: vi.fn(),
       revalidatePath: vi.fn(),
     }))
     vi.doMock('@/lib/db/utils/run-query', () => ({

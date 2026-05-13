@@ -50,28 +50,31 @@ export default async function HomeV2PageContent({ locale }: HomeV2PageContentPro
 
   const t = await getExtracted()
 
-  // Fix A2 (connection-pool hardening 2026-05-11):
+  // Cold-render fan-out control (Fix A2 2026-05-11, revised Fix F-3 2026-05-12):
   //   - Phase 1: featured-futures + sidebar in parallel — both lightweight
   //     (futures = 1 DB + ~12 Polymarket HTTP, sidebar = 2 sequential DB
   //     queries; peak ~2 simultaneous Supavisor checkouts).
-  //   - Phase 2: sport sections SEQUENTIALLY via `for...of` (was a top-level
-  //     `Promise.all` of N sections). Combined with A1's batched team-cache
-  //     lookups (each section now = 2 simultaneous checkouts max), this caps
-  //     the home-v2 cold-render peak at ~2 simultaneous pooler connections
-  //     across the entire page render — regardless of league count. Pre-A1/A2,
-  //     7 league sections × inner `Promise.all` of 8 per-row team lookups =
-  //     ~58 simultaneous checkouts per cold render → 200-cap Supavisor
-  //     saturation at ~4 concurrent renders (the 2026-05-11 EMAXCONN cascade).
-  //   - Trade-off: cold-render latency grows linearly with section count
-  //     (~each section's fill time). Acceptable because the result is
-  //     `'use cache'`-tagged so warm renders are unchanged.
+  //   - Phase 2: sport sections in BOUNDED CHUNKS of `SECTION_CONCURRENCY`
+  //     (was a fully-serial `for...of`; before that, an unbounded top-level
+  //     `Promise.all` of N sections). Each section issues 2 DB queries (A1's
+  //     batched team-cache lookup), so a chunk of 3 = ≤6 simultaneous pooler
+  //     checkouts — under the postgres.js pool `max` (10). Bounded so it can't
+  //     re-create the pre-A1 fan-out (7 league sections × inner `Promise.all`
+  //     of 8 per-row team lookups = ~58 simultaneous checkouts → the 2026-05-11
+  //     EMAXCONN cascade); chunked rather than fully serial so a cold render
+  //     completes ~3× faster and holds pool slots for a correspondingly
+  //     shorter window (a fully-serial render was a long-duration slot drip
+  //     that overlapped with whatever else was contending).
+  const SECTION_CONCURRENCY = 3
   const [featuredFutures, sidebarData] = await Promise.all([
     fetchFeaturedFuturesData(locale),
     fetchSidebarData(locale),
   ])
   const sections: ResolvedSection[] = []
-  for (const c of HOME_V2_CATEGORIES) {
-    sections.push(await resolveSection(c, locale))
+  for (let i = 0; i < HOME_V2_CATEGORIES.length; i += SECTION_CONCURRENCY) {
+    const chunk = HOME_V2_CATEGORIES.slice(i, i + SECTION_CONCURRENCY)
+    const resolved = await Promise.all(chunk.map(c => resolveSection(c, locale)))
+    sections.push(...resolved)
   }
 
   const currentTimestamp = getServerCurrentTimestamp()

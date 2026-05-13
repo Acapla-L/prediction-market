@@ -146,10 +146,14 @@ describe('/api/sync/polymarket-games-refresh window scope', () => {
     expect(mockedRepo.listInRefreshWindow).not.toHaveBeenCalled()
   })
 
-  it('stream 2: per-league list-route revalidation fires once per touched league', async () => {
-    // Two MLB rows in the refresh window — both refresh successfully. The
-    // route should bust the per-league list tag + path ONCE for MLB (not
-    // twice — Set semantics) and NOT touch the NBA/NHL list tags.
+  it('F-1: writes refreshed rows to the DB but does NOT invalidate any caches', async () => {
+    // Two MLB rows in the refresh window — both refresh successfully. After
+    // Fix F-1 (2026-05-12) the every-5-min refresh route only writes fresh
+    // prices/lifecycle into the rows; it no longer busts ANY cache (per-game
+    // tag/path, per-league list tag/path, homepage). Keeping every in-window
+    // per-game page + every /sports/.../games list page perpetually cold was
+    // the precondition for the 2026-05-12 cold-render cascade. Lifecycle
+    // changes are picked up by the hourly polymarket-games-discovery sync.
     function mlbRow(slug: string) {
       return {
         slug,
@@ -261,24 +265,11 @@ describe('/api/sync/polymarket-games-refresh window scope', () => {
     const body = await res.json()
     expect(body.refreshed).toBeGreaterThanOrEqual(1)
 
-    // Per-league list tag must be busted exactly once for MLB.
-    const mlbListTagCalls = mockedRevalidateTag.mock.calls.filter(
-      ([tag]) => tag === 'polymarket-discovered-games:list:mlb',
-    )
-    expect(mlbListTagCalls).toHaveLength(1)
+    // The route's job: write fresh prices/lifecycle into the rows.
+    expect(mockedRepo.upsertSuccess).toHaveBeenCalled()
 
-    // Per-league list paths busted (canonical + sportRouteSlug variants).
-    expect(mockedRevalidatePath).toHaveBeenCalledWith('/en/sports/baseball/games')
-    expect(mockedRevalidatePath).toHaveBeenCalledWith('/en/sports/mlb/games')
-
-    // Other leagues' list tags must NOT fire (no NBA/NHL games in window).
-    expect(mockedRevalidateTag).not.toHaveBeenCalledWith(
-      'polymarket-discovered-games:list:nba',
-      'max',
-    )
-    expect(mockedRevalidateTag).not.toHaveBeenCalledWith(
-      'polymarket-discovered-games:list:nhl',
-      'max',
-    )
+    // Fix F-1: no cache invalidation of any kind from the 5-min route.
+    expect(mockedRevalidateTag).not.toHaveBeenCalled()
+    expect(mockedRevalidatePath).not.toHaveBeenCalled()
   })
 })

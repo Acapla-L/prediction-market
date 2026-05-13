@@ -33,6 +33,7 @@ import { loadDiscoveredGameSportsCardsByLeague } from '@/lib/polymarket/synthesi
 
 vi.mock('next/cache', () => ({
   cacheTag: vi.fn(),
+  cacheLife: vi.fn(),
   unstable_cache: vi.fn((fn: () => unknown) => fn),
   revalidateTag: vi.fn(),
 }))

@@ -3,7 +3,7 @@ import type { PlatformCategorySidebarItem, PlatformNavigationChild } from '@/lib
 import { createHash } from 'node:crypto'
 import { and, asc, count, desc, eq, exists, ilike, inArray, or, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
-import { cacheTag, revalidatePath } from 'next/cache'
+import { cacheLife, cacheTag, revalidatePath } from 'next/cache'
 import { DEFAULT_LOCALE, NON_DEFAULT_LOCALES } from '@/i18n/locales'
 import { cacheTags } from '@/lib/cache-tags'
 import { resolveCategorySidebarData } from '@/lib/category-sidebar-config'
@@ -344,6 +344,11 @@ export const TagRepository = {
   async getMainTagsCached(locale: SupportedLocale = DEFAULT_LOCALE): Promise<MainTagsResult> {
     'use cache'
     cacheTag(cacheTags.mainTags(locale))
+    // Category set / order / translations change only on admin actions, which
+    // bust `cacheTags.mainTags(locale)` via `updateTag`. `'max'` makes this
+    // tag-driven — no 15-min time-based background re-renders of this DB read
+    // (which the platform layout depends on, so a slow one hurts every page).
+    cacheLife('max')
     const { data: mainTagsResult, error } = await runQuery(async () => {
       const result = await db
         .select({
@@ -640,6 +645,10 @@ export const TagRepository = {
   }> {
     'use cache'
     cacheTag(cacheTags.adminCategories)
+    // Admin-only category list; busts on admin category mutations via
+    // `updateTag(cacheTags.adminCategories)`. `'max'` → tag-driven, no 15-min
+    // time-based background re-renders.
+    cacheLife('max')
 
     const cappedLimit = Math.min(Math.max(limit, 1), 100)
     const safeOffset = Math.max(offset, 0)
