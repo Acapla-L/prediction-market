@@ -4,7 +4,7 @@ import type { Route } from 'next'
 import type { ReactNode } from 'react'
 import type { SportsMenuEntry } from '@/lib/sports-menu-types'
 import type { SportsVertical } from '@/lib/sports-vertical'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import SportsSidebarMenu from '@/app/[locale]/(platform)/sports/_components/SportsSidebarMenu'
 import { usePathname, useRouter } from '@/i18n/navigation'
 import { normalizeAliasKey } from '@/lib/sports-slug-mapping'
@@ -177,6 +177,10 @@ export default function SportsLayoutShell({
 }: SportsLayoutShellProps) {
   const pathname = usePathname()
   const router = useRouter()
+  // PR #22 B1 (2026-05-13): wheel-handler scope narrowed from `window` to the
+  // layout's <main> element so wheel-on-footer (and other out-of-layout chrome)
+  // no longer triggers the center-pane redirect. See useEffect below.
+  const mainRef = useRef<HTMLElement>(null)
   const verticalConfig = getSportsVerticalConfig(vertical)
   const context = useMemo(
     () => getSportsPathContext({
@@ -241,12 +245,25 @@ export default function SportsLayoutShell({
     }
   }, [pathname])
 
+  // PR #22 B1 (2026-05-13): wheel listener scoped to the layout's <main>
+  // element instead of `window`. The previous global window listener
+  // captured wheel events anywhere on the document (including the footer)
+  // and force-redirected them to the center pane via `preventDefault()` +
+  // `centerPane.scrollBy()`. That broke native scroll once the user landed
+  // at the footer — wheel-up there was preventDefault'd and the window
+  // stayed put. Footer / NavigationTabs / Header all live OUTSIDE this
+  // <main>, so narrowing the listener restores native scroll behavior for
+  // them while preserving the in-layout pane-routing intent.
   useEffect(() => {
     if (typeof window === 'undefined' || !useIndependentColumns) {
       return
     }
+    const mainEl = mainRef.current
+    if (!mainEl) {
+      return
+    }
 
-    function handleWindowWheel(event: WheelEvent) {
+    function handleLayoutWheel(event: WheelEvent) {
       if (window.innerWidth < 1200 || event.defaultPrevented || event.ctrlKey || event.metaKey) {
         return
       }
@@ -286,15 +303,16 @@ export default function SportsLayoutShell({
       })
     }
 
-    window.addEventListener('wheel', handleWindowWheel, { passive: false })
+    mainEl.addEventListener('wheel', handleLayoutWheel, { passive: false })
 
     return () => {
-      window.removeEventListener('wheel', handleWindowWheel)
+      mainEl.removeEventListener('wheel', handleLayoutWheel)
     }
   }, [useIndependentColumns])
 
   return (
     <main
+      ref={mainRef}
       className={cn(
         'container py-4',
         useIndependentColumns && 'min-[1200px]:h-[calc(100dvh-7.25rem)] min-[1200px]:overflow-hidden',
