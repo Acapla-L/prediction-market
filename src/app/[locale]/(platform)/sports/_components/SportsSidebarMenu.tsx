@@ -30,7 +30,6 @@ interface SportsSidebarMenuProps {
   mode: SportsSidebarMode
   activeTagSlug: string | null
   countByTagSlug?: Record<string, number>
-  independentScroll?: boolean
 }
 
 type SportsMenuChildLinkEntry = SportsMenuGroupEntry['links'][number]
@@ -627,7 +626,6 @@ export default function SportsSidebarMenu({
   mode,
   activeTagSlug,
   countByTagSlug,
-  independentScroll = false,
 }: SportsSidebarMenuProps) {
   const verticalConfig = getSportsVerticalConfig(vertical)
   const visibleEntries = useMemo(
@@ -1025,20 +1023,12 @@ export default function SportsSidebarMenu({
 
       <aside
         data-sports-scroll-pane="sidebar"
-        className={cn(
-          'hidden w-[190px] shrink-0',
-          independentScroll
-            ? `
-              min-[1200px]:flex min-[1200px]:h-full min-[1200px]:min-h-0 min-[1200px]:flex-col
-              min-[1200px]:justify-start min-[1200px]:overflow-y-auto min-[1200px]:overscroll-contain min-[1200px]:pt-2
-              min-[1200px]:pb-8
-            `
-            : `
-              min-[1200px]:sticky min-[1200px]:top-22 min-[1200px]:flex min-[1200px]:h-[calc(100vh-5.5rem)]
-              min-[1200px]:flex-col min-[1200px]:justify-start min-[1200px]:overflow-y-auto
-              min-[1200px]:overscroll-contain min-[1200px]:py-8
-            `,
-        )}
+        className="
+          hidden w-[190px] shrink-0
+          min-[1200px]:sticky min-[1200px]:top-22 min-[1200px]:flex min-[1200px]:h-[calc(100vh-5.5rem)]
+          min-[1200px]:flex-col min-[1200px]:justify-start min-[1200px]:overflow-y-auto
+          min-[1200px]:overscroll-contain min-[1200px]:py-8
+        "
       >
         {renderDesktopMenuEntries()}
       </aside>

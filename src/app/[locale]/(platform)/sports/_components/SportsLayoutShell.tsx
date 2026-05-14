@@ -4,7 +4,7 @@ import type { Route } from 'next'
 import type { ReactNode } from 'react'
 import type { SportsMenuEntry } from '@/lib/sports-menu-types'
 import type { SportsVertical } from '@/lib/sports-vertical'
-import { useEffect, useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 import SportsSidebarMenu from '@/app/[locale]/(platform)/sports/_components/SportsSidebarMenu'
 import { usePathname, useRouter } from '@/i18n/navigation'
 import { normalizeAliasKey } from '@/lib/sports-slug-mapping'
@@ -177,10 +177,6 @@ export default function SportsLayoutShell({
 }: SportsLayoutShellProps) {
   const pathname = usePathname()
   const router = useRouter()
-  // PR #22 B1 (2026-05-13): wheel-handler scope narrowed from `window` to the
-  // layout's <main> element so wheel-on-footer (and other out-of-layout chrome)
-  // no longer triggers the center-pane redirect. See useEffect below.
-  const mainRef = useRef<HTMLElement>(null)
   const verticalConfig = getSportsVerticalConfig(vertical)
   const context = useMemo(
     () => getSportsPathContext({
@@ -198,12 +194,6 @@ export default function SportsLayoutShell({
     && Boolean(context.sportSlug)
     && !context.isEventRoute
     && Boolean(sectionConfig?.gamesEnabled && sectionConfig?.propsEnabled)
-  const useIndependentColumns = context.mode === 'live'
-    || context.mode === 'soon'
-    || (
-      context.mode === 'all'
-      && (context.section === 'games' || context.isEventRoute)
-    )
   const headerInsideGamesCenter = !context.isEventRoute
     && (
       context.mode === 'live'
@@ -218,115 +208,29 @@ export default function SportsLayoutShell({
     ? 'min-[1200px]:max-w-[calc(100%-22.75rem)]'
     : ''
 
-  // Reset the inner sports scroll panes to the top on every route change within
-  // the shared `sports/` layout (and on first mount — which handles the initial
-  // mid-page landing reported when navigating in from "View all" / nav links).
-  //
-  // Why this is needed: at viewport width >= 1200px the document does not
-  // scroll — the `<section data-sports-scroll-pane="center">` (rendered by
-  // SportsGamesCenter / SportsEventCenter) is the scroll context, with a
-  // sibling `<aside data-sports-scroll-pane="aside">` order-panel rail. Next.js
-  // App Router scroll restoration (and a default `<Link>`, which is
-  // `scroll={true}`) only resets `window` / `document.documentElement`, not an
-  // arbitrary nested `overflow-y-auto` element — and that nested node persists
-  // across navigations within this layout segment, so its `scrollTop` carries
-  // over. This mirrors the document-level reset `<Link>` already provides,
-  // applied to the nested scrollers.
-  useEffect(() => {
-    if (typeof document === 'undefined') {
-      return
-    }
-
-    for (const pane of ['center', 'aside'] as const) {
-      const element = document.querySelector<HTMLElement>(`[data-sports-scroll-pane="${pane}"]`)
-      if (element) {
-        element.scrollTo({ top: 0, left: 0, behavior: 'auto' })
-      }
-    }
-  }, [pathname])
-
-  // PR #22 B1 (2026-05-13): wheel listener scoped to the layout's <main>
-  // element instead of `window`. The previous global window listener
-  // captured wheel events anywhere on the document (including the footer)
-  // and force-redirected them to the center pane via `preventDefault()` +
-  // `centerPane.scrollBy()`. That broke native scroll once the user landed
-  // at the footer — wheel-up there was preventDefault'd and the window
-  // stayed put. Footer / NavigationTabs / Header all live OUTSIDE this
-  // <main>, so narrowing the listener restores native scroll behavior for
-  // them while preserving the in-layout pane-routing intent.
-  useEffect(() => {
-    if (typeof window === 'undefined' || !useIndependentColumns) {
-      return
-    }
-    const mainEl = mainRef.current
-    if (!mainEl) {
-      return
-    }
-
-    function handleLayoutWheel(event: WheelEvent) {
-      if (window.innerWidth < 1200 || event.defaultPrevented || event.ctrlKey || event.metaKey) {
-        return
-      }
-
-      const target = event.target
-      if (!(target instanceof Element)) {
-        return
-      }
-
-      if (target.closest('[data-sports-scroll-pane="sidebar"]')) {
-        return
-      }
-
-      if (target.closest('[data-sports-scroll-pane="aside"]')) {
-        return
-      }
-
-      if (target.closest('[data-sports-scroll-pane="center"]')) {
-        return
-      }
-
-      // Allow native wheel behavior for overlays/dropdowns rendered outside sports panes
-      if (target.closest('[data-sports-wheel-ignore="true"]')) {
-        return
-      }
-
-      const centerPane = document.querySelector<HTMLElement>('[data-sports-scroll-pane="center"]')
-      if (!centerPane || centerPane.scrollHeight <= centerPane.clientHeight + 1) {
-        return
-      }
-
-      event.preventDefault()
-      centerPane.scrollBy({
-        top: event.deltaY,
-        left: 0,
-        behavior: 'auto',
-      })
-    }
-
-    mainEl.addEventListener('wheel', handleLayoutWheel, { passive: false })
-
-    return () => {
-      mainEl.removeEventListener('wheel', handleLayoutWheel)
-    }
-  }, [useIndependentColumns])
-
+  // PR #23 (2026-05-14, Fix D): Polymarket-style window-scroll layout.
+  // The previous implementation locked the sport layout to viewport height
+  // and used a nested scroll container; that defeated Next.js App Router's
+  // scroll-target walker (it bypasses non-scrollable elements) and left
+  // window.scrollY carrying over from prior routes — landing the user at
+  // the footer after navigation. See audits for full root-cause analysis:
+  //   docs/audits/scroll-landing-investigation-2026-05-14.md
+  //   docs/audits/polymarket-layout-comparison-2026-05-14.md
+  // Fix D matches Polymarket's verified-live pattern: window scrolls,
+  // sidebars use position:sticky, the layout root uses min-h (not h) so
+  // Next.js's walker finds the page as the scroll element. The wheel-handler
+  // hack (PR #22 B1) and the pathname-keyed scroll-reset useEffect that
+  // previously lived here are unnecessary by construction.
   return (
     <main
-      ref={mainRef}
-      className={cn(
-        'container py-4',
-        useIndependentColumns && 'min-[1200px]:h-[calc(100dvh-7.25rem)] min-[1200px]:overflow-hidden',
-      )}
+      className="container py-4 min-[1200px]:min-h-[calc(100dvh-7.25rem)]"
     >
       <div
-        className={cn(
-          `
-            relative w-full
-            min-[1200px]:grid min-[1200px]:grid-cols-[190px_minmax(0,1fr)] min-[1200px]:[align-content:start]
-            min-[1200px]:[align-items:start] min-[1200px]:gap-4
-          `,
-          useIndependentColumns && 'min-[1200px]:h-full',
-        )}
+        className="
+          relative w-full
+          min-[1200px]:grid min-[1200px]:grid-cols-[190px_minmax(0,1fr)] min-[1200px]:[align-content:start]
+          min-[1200px]:[align-items:start] min-[1200px]:gap-4
+        "
       >
         <SportsSidebarMenu
           entries={sportsMenuEntries}
@@ -334,14 +238,10 @@ export default function SportsLayoutShell({
           mode={context.mode}
           activeTagSlug={context.activeTagSlug}
           countByTagSlug={sportsCountsBySlug}
-          independentScroll={useIndependentColumns}
         />
         <div
           id="sports-layout-center-column"
-          className={cn(
-            'min-w-0 flex-1',
-            useIndependentColumns && 'min-[1200px]:flex min-[1200px]:h-full min-[1200px]:min-h-0 min-[1200px]:flex-col',
-          )}
+          className="min-w-0 flex-1"
         >
           {showShellHeader && (
             <div id="sports-layout-center-header" className="flow-root">
@@ -396,12 +296,7 @@ export default function SportsLayoutShell({
               )}
             </div>
           )}
-          <div
-            id="sports-layout-center-body"
-            className={cn(
-              useIndependentColumns && 'min-[1200px]:min-h-0 min-[1200px]:flex-1 min-[1200px]:overflow-hidden',
-            )}
-          >
+          <div id="sports-layout-center-body">
             {children}
           </div>
         </div>
