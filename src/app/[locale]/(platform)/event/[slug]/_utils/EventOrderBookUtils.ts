@@ -14,6 +14,58 @@ import { formatCentsLabel, formatSharesLabel, toCents } from '@/lib/formatters'
 
 const DEFAULT_MAX_LEVELS = 12
 
+// PR #22 B3 (2026-05-13): Kuest CLOB caps batched POSTs at 500 items per
+// request. The homepage's order-panel call site has been observed posting
+// 878 tokens in a single batch → HTTP 400 `{"error":"maximum of 500 items
+// allowed"}` on BOTH `/books` and `/last-trades-prices`. PR #18 fixed the
+// same class of bug in `useEventLastTrades.ts` + `useEventMidPrices.ts`
+// (the `_hooks/` directory) but missed this third call site under `_utils/`.
+// Mirror the same pattern: chunk at 400 (defensive margin below the 500 cap),
+// `Promise.all` the chunks, per-chunk graceful fallback so a single failure
+// degrades to an empty array for that chunk rather than nulling the whole
+// call. Output `OrderBookSummariesResponse` shape is byte-identical.
+const CLOB_BATCH_LIMIT = 400
+
+function chunkTokenIds(tokenIds: string[]): string[][] {
+  const chunks: string[][] = []
+  for (let i = 0; i < tokenIds.length; i += CLOB_BATCH_LIMIT) {
+    chunks.push(tokenIds.slice(i, i + CLOB_BATCH_LIMIT))
+  }
+  return chunks
+}
+
+async function fetchOrderbookChunk(chunk: string[]): Promise<ClobOrderbookSummary[]> {
+  const payload = chunk.map(tokenId => ({ token_id: tokenId }))
+  try {
+    const result = await fetchClobJson<ClobOrderbookSummary[]>('/books', payload)
+    if (!Array.isArray(result)) {
+      console.warn(`/books chunk returned non-array (size=${chunk.length}); coercing to []`)
+      return []
+    }
+    return result
+  }
+  catch (err) {
+    console.warn(`/books chunk failed (size=${chunk.length})`, err)
+    return []
+  }
+}
+
+async function fetchLastTradesChunk(chunk: string[]): Promise<LastTradePriceEntry[]> {
+  const payload = chunk.map(tokenId => ({ token_id: tokenId }))
+  try {
+    const result = await fetchClobJson<LastTradePriceEntry[]>('/last-trades-prices', payload)
+    if (!Array.isArray(result)) {
+      console.warn(`/last-trades-prices chunk returned non-array (size=${chunk.length}); coercing to []`)
+      return []
+    }
+    return result
+  }
+  catch (err) {
+    console.warn(`/last-trades-prices chunk failed (size=${chunk.length})`, err)
+    return []
+  }
+}
+
 export { getRoundedCents }
 
 export async function fetchOrderBookSummaries(tokenIds: string[]): Promise<OrderBookSummariesResponse> {
@@ -21,19 +73,15 @@ export async function fetchOrderBookSummaries(tokenIds: string[]): Promise<Order
     return {}
   }
 
-  const payload = tokenIds.map(tokenId => ({ token_id: tokenId }))
+  const chunks = chunkTokenIds(tokenIds)
 
-  const [orderBooks, lastTrades] = await Promise.all([
-    fetchClobJson<ClobOrderbookSummary[]>('/books', payload),
-    fetchClobJson<LastTradePriceEntry[]>('/last-trades-prices', payload).catch((error) => {
-      console.error('Failed to fetch last trades prices', error)
-      return null
-    }),
+  const [orderBookChunks, lastTradeChunks] = await Promise.all([
+    Promise.all(chunks.map(fetchOrderbookChunk)),
+    Promise.all(chunks.map(fetchLastTradesChunk)),
   ])
 
-  if (!Array.isArray(orderBooks)) {
-    throw new TypeError('Unexpected response format from /books')
-  }
+  const orderBooks: ClobOrderbookSummary[] = orderBookChunks.flat()
+  const lastTrades: LastTradePriceEntry[] = lastTradeChunks.flat()
 
   const orderBookByToken = new Map<string, ClobOrderbookSummary>()
   orderBooks.forEach((entry) => {
@@ -43,7 +91,7 @@ export async function fetchOrderBookSummaries(tokenIds: string[]): Promise<Order
   })
 
   const lastTradesByToken = new Map<string, LastTradePriceEntry>()
-  lastTrades?.forEach((entry) => {
+  lastTrades.forEach((entry) => {
     if (entry?.token_id) {
       lastTradesByToken.set(entry.token_id, entry)
     }
