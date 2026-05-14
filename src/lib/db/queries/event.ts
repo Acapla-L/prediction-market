@@ -2467,12 +2467,12 @@ export const EventRepository = {
       const normalizedSportsLeagueSlug = sportsLeagueSlug?.trim().toLowerCase() ?? ''
 
       if (!requestedCanonicalSportsSlug || !normalizedSportsEventSlug || sportsSportSlugCandidates.length === 0) {
-        throw new Error('Event not found')
+        return { data: null, error: 'Event not found.' }
       }
 
       const sportsSlugMatchCondition = buildSportsSlugMatchCondition(sportsSportSlugCandidates)
       if (!sportsSlugMatchCondition) {
-        throw new Error('Event not found')
+        return { data: null, error: 'Event not found.' }
       }
 
       const normalizedSportsEventSlugColumn = sql<string>`
@@ -2512,7 +2512,7 @@ export const EventRepository = {
         return { data: { slug: matchingRow.slug }, error: null }
       }
 
-      throw new Error('Event not found')
+      return { data: null, error: 'Event not found.' }
     })
   },
 
@@ -2549,12 +2549,12 @@ export const EventRepository = {
         .limit(1)
 
       if (result.length === 0) {
-        throw new Error('Event not found')
+        return { data: null, error: 'Event not found.' }
       }
 
       const eventRow = result[0]
       if (!eventRow) {
-        throw new Error('Event not found')
+        return { data: null, error: 'Event not found.' }
       }
 
       if (locale === DEFAULT_LOCALE) {
@@ -2614,7 +2614,7 @@ export const EventRepository = {
 
       const eventRow = result[0]
       if (!eventRow) {
-        throw new Error('Event not found')
+        return { data: null, error: 'Event not found.' }
       }
 
       const tagRows = await db
@@ -2660,7 +2660,7 @@ export const EventRepository = {
         .limit(1)
 
       if (!eventResult.length) {
-        throw new Error('Event not found')
+        return { data: null, error: 'Event not found.' }
       }
 
       const eventId = eventResult[0]!.id
@@ -2763,7 +2763,7 @@ export const EventRepository = {
       }) as EventMarketMetadataRow | undefined
 
       if (!eventResult) {
-        throw new Error('Event not found')
+        return { data: null, error: 'Event not found.' }
       }
 
       const markets = (eventResult.markets ?? []).map(market => ({
@@ -2820,7 +2820,7 @@ export const EventRepository = {
       }) as DrizzleEventResult
 
       if (!eventResult) {
-        throw new Error('Event not found')
+        return { data: null, error: 'Event not found.' }
       }
 
       const hydratedEventResult = await hydrateSportsAuxiliaryEventContext(eventResult as DrizzleEventResult)
