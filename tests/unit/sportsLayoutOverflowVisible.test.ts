@@ -54,7 +54,10 @@ describe('SportsLayoutShell Fix D invariants (PR #23)', () => {
     // Catches the exact pattern from before Fix D:
     //   className={cn('container py-4', useIndependentColumns && 'min-[1200px]:h-[calc(100dvh-7.25rem)] min-[1200px]:overflow-hidden')}
     // And any future variant of overflow-hidden on <main>.
-    const mainBlock = shellSource.match(/<main\b[\s\S]*?>/)
+    // Match only a JSX <main> tag (one with a className= or ref= attribute
+    // immediately following), not the literal string "<main" that may appear
+    // in comments referring to the element.
+    const mainBlock = shellSource.match(/<main\s+(?:ref|className)=[\s\S]*?>/)
     expect(mainBlock).not.toBeNull()
     expect(mainBlock![0]).not.toMatch(/overflow-hidden/)
     // Also: the height-clamp pattern must NOT come back as a fixed height
@@ -65,16 +68,14 @@ describe('SportsLayoutShell Fix D invariants (PR #23)', () => {
   })
 
   it('<main> uses min-h (not h) to preserve a minimum visual height without locking scroll', () => {
-    const mainBlock = shellSource.match(/<main\b[\s\S]*?>/)
+    // Match only a JSX <main> tag (one with a className= or ref= attribute
+    // immediately following), not the literal string "<main" that may appear
+    // in comments referring to the element.
+    const mainBlock = shellSource.match(/<main\s+(?:ref|className)=[\s\S]*?>/)
     expect(mainBlock![0]).toMatch(/min-h-\[calc\(100dvh-7\.25rem\)\]/)
   })
 
-  it('SportsLayoutShell has NO useEffect / useRef / mainRef remnants', () => {
-    // The wheel-handler and scroll-reset useEffects were deleted in Fix D.
-    // Forward drift-lock: nothing imports useEffect/useRef from React in this
-    // file, and no mainRef declaration exists.
-    expect(shellSource).not.toMatch(/import\s*\{[^}]*\buseEffect\b[^}]*\}\s*from\s*['"]react['"]/)
-    expect(shellSource).not.toMatch(/import\s*\{[^}]*\buseRef\b[^}]*\}\s*from\s*['"]react['"]/)
+  it('SportsLayoutShell has no mainRef remnant (deleted with wheel handler)', () => {
     expect(shellSource).not.toMatch(/\bmainRef\b/)
   })
 
@@ -90,6 +91,32 @@ describe('SportsLayoutShell Fix D invariants (PR #23)', () => {
 
   it('SportsLayoutShell has no useIndependentColumns derived flag', () => {
     expect(shellSource).not.toMatch(/useIndependentColumns/)
+  })
+
+  // Fix D follow-up: the structural CSS change alone does NOT cause Next.js
+  // to reset window.scrollY on soft navigation in this codebase (see comment
+  // block in SportsLayoutShell.tsx for the why). A useLayoutEffect resets
+  // window.scrollY on pathname change, with a popstate-flag escape hatch so
+  // back/forward navigation's native scroll restoration is preserved.
+  it('SportsLayoutShell has a useLayoutEffect that resets window.scrollY on pathname change', () => {
+    expect(shellSource).toMatch(
+      /useLayoutEffect\(\s*\(\)\s*=>\s*\{[\s\S]*?window\.scrollTo\(\s*0\s*,\s*0\s*\)[\s\S]*?\}\s*,\s*\[\s*pathname\s*\]\s*\)/,
+    )
+  })
+
+  it('SportsLayoutShell uses a popstate listener + ref flag to detect back/forward navigation', () => {
+    // The popstate flag is essential — without it, the useLayoutEffect would
+    // override the browser's native scroll restoration on back-button, losing
+    // the user's prior position on the route they came from.
+    expect(shellSource).toMatch(/isPopNavigation\s*=\s*useRef\(\s*false\s*\)/)
+    expect(shellSource).toMatch(/addEventListener\(\s*['"]popstate['"]/)
+    expect(shellSource).toMatch(/isPopNavigation\.current\s*=\s*true/)
+    // And the useLayoutEffect must gate its scrollTo on the flag.
+    expect(shellSource).toMatch(
+      /if\s*\(\s*!\s*isPopNavigation\.current\s*\)\s*\{[\s\S]*?window\.scrollTo/,
+    )
+    // Flag MUST reset after every effect run (one-shot signal).
+    expect(shellSource).toMatch(/isPopNavigation\.current\s*=\s*false/)
   })
 })
 

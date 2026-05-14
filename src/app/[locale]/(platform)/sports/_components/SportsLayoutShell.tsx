@@ -4,7 +4,7 @@ import type { Route } from 'next'
 import type { ReactNode } from 'react'
 import type { SportsMenuEntry } from '@/lib/sports-menu-types'
 import type { SportsVertical } from '@/lib/sports-vertical'
-import { useMemo } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import SportsSidebarMenu from '@/app/[locale]/(platform)/sports/_components/SportsSidebarMenu'
 import { usePathname, useRouter } from '@/i18n/navigation'
 import { normalizeAliasKey } from '@/lib/sports-slug-mapping'
@@ -221,6 +221,53 @@ export default function SportsLayoutShell({
   // Next.js's walker finds the page as the scroll element. The wheel-handler
   // hack (PR #22 B1) and the pathname-keyed scroll-reset useEffect that
   // previously lived here are unnecessary by construction.
+  //
+  // Fix D follow-up (verified-empirically on the preview deploy): the
+  // structural CSS change alone does NOT cause Next.js to reset window.scrollY
+  // on soft navigation for this codebase — likely because our <main> lives in
+  // the layout shell rather than at the Page boundary (Polymarket renders
+  // page content directly inside <main id="__pm_main" tabindex="-1"> as a
+  // sibling of the sidebar/aside columns; our <main> wraps the grid that
+  // contains both columns + page content). The Next.js scroll-and-focus
+  // handler doesn't recognize our <main> as the Page target, so soft-nav
+  // scrollY persists from the prior route and clamps to the new doc's
+  // scrollMax — reproducing the "lands at footer" bug despite Fix D's CSS.
+  //
+  // The minimal fix is a useLayoutEffect that resets window.scrollY on
+  // pathname change, EXCEPT on back/forward navigation where the browser
+  // restores the prior scroll position natively (and we want that UX).
+  // We detect back/forward via a popstate listener that sets a one-shot
+  // ref flag BEFORE the React reconciler updates pathname — popstate fires
+  // synchronously when the browser handles back/forward, ahead of the
+  // useLayoutEffect that consumes the flag and then resets it.
+  const isPopNavigation = useRef(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    function handlePopstate() {
+      isPopNavigation.current = true
+    }
+    window.addEventListener('popstate', handlePopstate)
+    return () => window.removeEventListener('popstate', handlePopstate)
+  }, [])
+
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    if (!isPopNavigation.current) {
+      // Forward navigation (Link click, programmatic push, or first mount).
+      // Reset window scroll so the user lands at the top of the new page —
+      // matches the behavior the user gets on a hard navigation.
+      window.scrollTo(0, 0)
+    }
+    // Back/forward (POP): browser restores scrollY natively. Leave it alone.
+    // Reset the flag regardless so the next forward nav resets correctly.
+    isPopNavigation.current = false
+  }, [pathname])
+
   return (
     <main
       className="container py-4 min-[1200px]:min-h-[calc(100dvh-7.25rem)]"
