@@ -4,6 +4,7 @@ import type { HomeSportsMoneylineButton, HomeSportsMoneylineModel } from '@/lib/
 import type { Event } from '@/types'
 import { CheckIcon } from 'lucide-react'
 import Image from 'next/image'
+import { useEffect, useState } from 'react'
 import EventBookmark from '@/app/[locale]/(platform)/event/[slug]/_components/EventBookmark'
 import AppLink from '@/components/AppLink'
 import { Card, CardContent } from '@/components/ui/card'
@@ -202,7 +203,22 @@ export default function EventCardSportsMoneyline({
   }
   const isResolvedEvent = isHomeEventResolvedLike(event)
   const sportsCompetitionLabel = resolveSportsCompetitionLabel(event)
-  const startTimeLabel = formatSportsStartTime(event.sports_start_time ?? event.start_date, currentTimestamp)
+  // PR #22 B2 (2026-05-13): mount-gate the locale-formatted start time.
+  // `formatSportsStartTime` internally calls `Date.prototype.toLocaleTimeString`
+  // / `toLocaleDateString` which use the runtime's default timezone (no
+  // `timeZone` option passed). Server-side render in Vercel iad1 runs in UTC;
+  // client first render runs in user's local TZ → text node disagreement →
+  // React error #418 hydration mismatch. Gate the call behind a mount flag:
+  // SSR + first client render emit `null` (the function already returns null
+  // for invalid inputs, so the surrounding JSX already handles a null label).
+  // After useEffect flips `hasMounted` true, the localized string appears.
+  const [hasMounted, setHasMounted] = useState(false)
+  useEffect(() => {
+    setHasMounted(true)
+  }, [])
+  const startTimeLabel = hasMounted
+    ? formatSportsStartTime(event.sports_start_time ?? event.start_date, currentTimestamp)
+    : null
   const endedLabel = isResolvedEvent && event.resolved_at
     ? (() => {
         const resolvedDate = new Date(event.resolved_at)

@@ -3903,6 +3903,21 @@ export default function SportsGamesCenter({
   const [searchQuery, setSearchQuery] = useState('')
   const [oddsFormat, setOddsFormat] = useState<OddsFormat>(() => resolveInitialSportsEventOddsFormat())
   const [showSpreadsAndTotals, setShowSpreadsAndTotals] = useState(() => resolveInitialShowSpreadsAndTotals())
+  // PR #22 B2 (2026-05-13): mount-gate the locale-formatted date/time output.
+  // `Intl.DateTimeFormat(locale, { ... }).format(date)` (and the equivalent
+  // `Date.prototype.toLocaleTimeString`) uses the runtime's default timezone
+  // when no explicit `timeZone` option is provided. Server-side render runs
+  // in Vercel iad1 UTC; client first render runs in the user's local TZ. The
+  // resulting text-node disagreement triggers React error #418
+  // ("Hydration failed because the initial UI does not match what was
+  // rendered on the server"). We gate the locale-formatted output behind a
+  // mount flag: SSR + first client render emit an empty placeholder, and a
+  // useEffect flips the flag on mount, which re-renders with the localized
+  // string. Matches the established PR #16 useState-null + useEffect pattern.
+  const [hasMounted, setHasMounted] = useState(false)
+  useEffect(() => {
+    setHasMounted(true)
+  }, [])
   const currentTimestamp = useCurrentTimestamp({ intervalMs: 60_000 })
   const currentTimestampMs = currentTimestamp ?? 0
   const searchShellRef = useRef<HTMLDivElement | null>(null)
@@ -4313,21 +4328,28 @@ export default function SportsGamesCenter({
     return () => {}
   }, [filteredCards, resolveDisplayButtonKey, selectedConditionByCardId, showSpreadsAndTotals])
 
-  const dateLabelFormatter = useMemo(
-    () => new Intl.DateTimeFormat(locale, {
-      weekday: 'short',
-      month: 'long',
-      day: 'numeric',
-    }),
-    [locale],
+  // PR #22 B2: Sentinel formatter for SSR + first client render — keeps the
+  // hydration-time text identical on both sides. After useEffect flips
+  // `hasMounted` true, the real `Intl.DateTimeFormat` takes over.
+  const dateLabelFormatter = useMemo<{ format: (date: Date) => string }>(
+    () => hasMounted
+      ? new Intl.DateTimeFormat(locale, {
+          weekday: 'short',
+          month: 'long',
+          day: 'numeric',
+        })
+      : { format: () => '' },
+    [hasMounted, locale],
   )
 
-  const timeLabelFormatter = useMemo(
-    () => new Intl.DateTimeFormat(locale, {
-      hour: 'numeric',
-      minute: '2-digit',
-    }),
-    [locale],
+  const timeLabelFormatter = useMemo<{ format: (date: Date) => string }>(
+    () => hasMounted
+      ? new Intl.DateTimeFormat(locale, {
+          hour: 'numeric',
+          minute: '2-digit',
+        })
+      : { format: () => '' },
+    [hasMounted, locale],
   )
 
   const groupedCards = useMemo(() => {
