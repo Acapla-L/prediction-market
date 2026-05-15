@@ -9,6 +9,8 @@ import { loadMarketContextSettings } from '@/lib/ai/market-context-config'
 import { DEFAULT_ERROR_MESSAGE } from '@/lib/constants'
 import { EventRepository } from '@/lib/db/queries/event'
 import { MarketContextCacheRepository } from '@/lib/db/queries/market-context-cache'
+import { isPolymarketDiscoverySlug } from '@/lib/polymarket/discovery'
+import { isDiscoveryGameSlug } from '@/lib/polymarket/games-leagues'
 
 const MARKET_CONTEXT_CACHE_WINDOW_MS = 30 * 60 * 1000
 
@@ -29,6 +31,16 @@ export async function generateMarketContextAction(input: GenerateMarketContextIn
 
   try {
     const { slug, marketConditionId, readOnly = false } = parsed.data
+
+    // Discovery-layer slugs (Phase A v2 futures + Phase B per-game) live in
+    // sidecar tables, not in Kuest's `events` table. Skip the EventRepository
+    // lookup that would otherwise log "Failed to fetch event for market
+    // context" and return the friendly degradation response. AI market context
+    // is explicitly out of scope for the discovery layer.
+    if (isPolymarketDiscoverySlug(slug) || isDiscoveryGameSlug(slug)) {
+      return { error: 'Event could not be located.' }
+    }
+
     const locale = await getLocale()
     const resolvedLocale = SUPPORTED_LOCALES.includes(locale as SupportedLocale)
       ? locale as SupportedLocale
