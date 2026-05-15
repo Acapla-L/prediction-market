@@ -24,12 +24,17 @@
  *   - `nhl-ana-las-2026-05-06`         — Anaheim at Las Vegas, May 6, 2026
  */
 
-export interface DiscoveredGamesLeague {
+/**
+ * Subset of league fields needed by the teams-cache sync route — kept smaller
+ * than `DiscoveredGamesLeague` so leagues that have per-team logos but no
+ * per-game discovery yet (e.g., NFL + UCL for the Phase A v2 futures-page
+ * logos) can register for teams sync without faking a `seriesId` /
+ * `slugPattern` / etc.
+ *
+ * `DiscoveredGamesLeague` extends this interface.
+ */
+export interface TeamsOnlyLeague {
   slug: string
-  seriesId: string
-  slugPattern: RegExp
-  mainTag: string
-  sportRouteSlug: string
   /**
    * Per-league all-star / exhibition placeholder abbreviations to filter from
    * the teams_cache sync. Optional; defaults to empty Set for leagues without
@@ -60,6 +65,13 @@ export interface DiscoveredGamesLeague {
    * (deferred): 'col'. Defaults to `slug` when omitted.
    */
   teamsApiCode?: string
+}
+
+export interface DiscoveredGamesLeague extends TeamsOnlyLeague {
+  seriesId: string
+  slugPattern: RegExp
+  mainTag: string
+  sportRouteSlug: string
   /**
    * Whether `event.teams[0]` is the away team or the home team.
    * - `'away_first'` for US sports (MLB/NBA/NHL/WNBA/NFL/UFC) — slug + title
@@ -152,6 +164,39 @@ export const DISCOVERED_GAMES_LEAGUES: readonly DiscoveredGamesLeague[] = [
     sportRouteSlug: 'fifa-world-cup',
     teamOrderConvention: 'home_first',
   },
+] as const
+
+/**
+ * Bundle B (futures logos, 2026-05-14) — leagues that have Phase A v2 futures
+ * pages but no per-game discovery yet. We populate `teams_cache` for them so
+ * `buildSyntheticMarket` can override each market's `icon_url` with the
+ * per-team logo. These are iterated by the teams-cache sync route alongside
+ * `DISCOVERED_GAMES_LEAGUES`.
+ *
+ * Currently:
+ *   - `nfl`  — for the `big-game-champion-2027` futures page.
+ *   - `ucl`  — for the `uefa-champions-league-winner` futures page. UCL's
+ *              `/teams?league=ucl` returns ~246 entries spread across 5 pages
+ *              of 50; the existing pagination helper handles this transparently.
+ *
+ * No `slugPattern` / `seriesId` etc. — these leagues are NOT part of the
+ * per-game registry. If/when per-game discovery ships for NFL or UCL, move
+ * the entry to `DISCOVERED_GAMES_LEAGUES` (extending the type from
+ * `TeamsOnlyLeague` to `DiscoveredGamesLeague`).
+ */
+export const TEAMS_ONLY_LEAGUES: readonly TeamsOnlyLeague[] = [
+  { slug: 'nfl' },
+  { slug: 'ucl' },
+] as const
+
+/**
+ * Iteration set for the teams-cache sync route: all per-game leagues PLUS the
+ * teams-only leagues. Allows the route to populate `teams_cache` for both
+ * surfaces with one loop.
+ */
+export const ALL_TEAMS_CACHE_LEAGUES: readonly TeamsOnlyLeague[] = [
+  ...DISCOVERED_GAMES_LEAGUES,
+  ...TEAMS_ONLY_LEAGUES,
 ] as const
 
 /**

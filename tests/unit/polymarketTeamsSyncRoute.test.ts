@@ -5,7 +5,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GET } from '@/app/api/sync/polymarket-teams/route'
 import { isCronAuthorized } from '@/lib/auth-cron'
 import { TeamsCacheRepository } from '@/lib/db/queries/teams-cache'
-import { DISCOVERED_GAMES_LEAGUES } from '@/lib/polymarket/games-leagues'
+import { ALL_TEAMS_CACHE_LEAGUES, DISCOVERED_GAMES_LEAGUES } from '@/lib/polymarket/games-leagues'
 
 // Mirror the mocking strategy used by `discoveredGamesSyncRoute.test.ts` — the
 // route uses `revalidateTag` from `next/cache`, `connection` from `next/server`,
@@ -252,8 +252,8 @@ describe('/api/sync/polymarket-teams', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.ok).toBe(true)
-    expect(body.league_count).toBe(DISCOVERED_GAMES_LEAGUES.length)
-    expect(body.results).toHaveLength(DISCOVERED_GAMES_LEAGUES.length)
+    expect(body.league_count).toBe(ALL_TEAMS_CACHE_LEAGUES.length)
+    expect(body.results).toHaveLength(ALL_TEAMS_CACHE_LEAGUES.length)
 
     const mlbResult = body.results.find((r: { league: string }) => r.league === 'mlb')
     expect(mlbResult).toBeDefined()
@@ -268,7 +268,7 @@ describe('/api/sync/polymarket-teams', () => {
 
     // revalidateTag fires once per league iteration with 'max' staleness.
     expect(mockedRevalidateTag).toHaveBeenCalledWith('teams-cache:mlb', 'max')
-    expect(mockedRevalidateTag).toHaveBeenCalledTimes(DISCOVERED_GAMES_LEAGUES.length)
+    expect(mockedRevalidateTag).toHaveBeenCalledTimes(ALL_TEAMS_CACHE_LEAGUES.length)
   })
 
   it('persists expected fields on each upsert call (sample: yankees)', async () => {
@@ -368,7 +368,7 @@ describe('/api/sync/polymarket-teams', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.ok).toBe(true)
-    expect(body.results).toHaveLength(DISCOVERED_GAMES_LEAGUES.length)
+    expect(body.results).toHaveLength(ALL_TEAMS_CACHE_LEAGUES.length)
     body.results.forEach((r: { status: string, error?: string }) => {
       expect(r.status).toBe('network_error')
       expect(r.error).toContain('ECONNRESET')
