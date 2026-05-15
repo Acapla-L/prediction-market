@@ -149,4 +149,51 @@ describe('generateMarketContextAction', () => {
       expect.any(Date),
     )
   })
+
+  it('returns friendly error without DB lookup for Phase A v2 discovery futures slugs', async () => {
+    const { generateMarketContextAction } = await import('@/app/[locale]/(platform)/event/[slug]/_actions/generate-market-context')
+
+    const result = await generateMarketContextAction({
+      slug: '2026-nba-champion',
+      marketConditionId: 'any-condition-id',
+    })
+
+    expect(result).toEqual({ error: 'Event could not be located.' })
+    expect(mocks.getEventBySlug).not.toHaveBeenCalled()
+  })
+
+  it('returns friendly error without DB lookup for Phase B per-game discovery slugs', async () => {
+    const { generateMarketContextAction } = await import('@/app/[locale]/(platform)/event/[slug]/_actions/generate-market-context')
+
+    const result = await generateMarketContextAction({
+      slug: 'mlb-mil-stl-2026-05-13',
+      marketConditionId: 'any-condition-id',
+    })
+
+    expect(result).toEqual({ error: 'Event could not be located.' })
+    expect(mocks.getEventBySlug).not.toHaveBeenCalled()
+  })
+
+  it('still calls EventRepository for non-discovery slugs (regression guard)', async () => {
+    mockConfiguredSettings()
+    mocks.getEventBySlug.mockResolvedValue({ data: makeEvent(), error: null })
+    mocks.getValidContext.mockResolvedValue({
+      data: {
+        context: 'cached',
+        expiresAt: '2026-04-06T15:00:00.000Z',
+        updatedAt: '2026-04-06T14:30:00.000Z',
+      },
+      error: null,
+    })
+
+    const { generateMarketContextAction } = await import('@/app/[locale]/(platform)/event/[slug]/_actions/generate-market-context')
+
+    await generateMarketContextAction({
+      slug: 'regular-kuest-event-slug',
+      marketConditionId: 'condition-1',
+    })
+
+    expect(mocks.getEventBySlug).toHaveBeenCalledTimes(1)
+    expect(mocks.getEventBySlug).toHaveBeenCalledWith('regular-kuest-event-slug', '', 'en')
+  })
 })
