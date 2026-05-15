@@ -1,4 +1,4 @@
-import type { DiscoveredGamesLeague } from '@/lib/polymarket/games-leagues'
+import type { TeamsOnlyLeague } from '@/lib/polymarket/games-leagues'
 import { revalidateTag } from 'next/cache'
 import { connection, NextResponse } from 'next/server'
 import { z } from 'zod'
@@ -6,7 +6,7 @@ import { isCronAuthorized } from '@/lib/auth-cron'
 import { cacheTags } from '@/lib/cache-tags'
 import { TeamsCacheRepository } from '@/lib/db/queries/teams-cache'
 import { POLYMARKET_GAMMA_BASE_DEFAULT } from '@/lib/polymarket/constants'
-import { DISCOVERED_GAMES_LEAGUES } from '@/lib/polymarket/games-leagues'
+import { ALL_TEAMS_CACHE_LEAGUES } from '@/lib/polymarket/games-leagues'
 
 // Long-running cron sync — match the legacy Kuest sync routes' ceiling.
 export const maxDuration = 300
@@ -76,7 +76,7 @@ const TeamsResponseSchema = z.array(TeamSchema)
  */
 function isLeaguePlaceholder(
   team: z.infer<typeof TeamSchema>,
-  league: DiscoveredGamesLeague,
+  league: TeamsOnlyLeague,
 ): boolean {
   const abbr = team.abbreviation.toLowerCase()
 
@@ -221,7 +221,7 @@ async function handleTeamsSync(request: Request): Promise<NextResponse<TeamsSync
 
   const results: LeagueSyncResult[] = []
 
-  for (const league of DISCOVERED_GAMES_LEAGUES) {
+  for (const league of ALL_TEAMS_CACHE_LEAGUES) {
     // NEW-10: query `/teams` by the league's Gamma API code when it differs
     // from our registry slug (e.g. La Liga: query `?league=lal`, write
     // `teams_cache(league='laliga')`). All writes and `revalidateTag` calls
@@ -304,7 +304,7 @@ async function handleTeamsSync(request: Request): Promise<NextResponse<TeamsSync
 
   return NextResponse.json({
     ok: true,
-    league_count: DISCOVERED_GAMES_LEAGUES.length,
+    league_count: ALL_TEAMS_CACHE_LEAGUES.length,
     results,
   })
 }

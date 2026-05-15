@@ -2,17 +2,20 @@ import type { DiscoveredEventRow } from '@/lib/db/queries/discovered-events'
 import type { EventPageContentData } from '@/lib/event-page-data'
 import type { DiscoveredPolymarketSlug } from '@/lib/polymarket/constants'
 import type { DiscoveredMarketsPayload } from '@/lib/polymarket/normalize-discovery-payload'
+import type { TeamLogoLookup } from '@/lib/polymarket/team-logo-lookup'
 import type { ThemeSiteIdentity } from '@/lib/theme-site-identity'
 import type { Event, Market, Outcome } from '@/types'
 import { cacheTag } from 'next/cache'
 import { z } from 'zod'
 import { cacheTags } from '@/lib/cache-tags'
 import { DiscoveredEventsRepository } from '@/lib/db/queries/discovered-events'
+import { TeamsCacheRepository } from '@/lib/db/queries/teams-cache'
 import {
   DISCOVERED_POLYMARKET_SLUGS,
 
 } from '@/lib/polymarket/constants'
 import { getDiscoveredSlugMetadata } from '@/lib/polymarket/discovered-slugs'
+import { buildTeamLogoLookup } from '@/lib/polymarket/team-logo-lookup'
 import { loadRuntimeThemeState } from '@/lib/theme-settings'
 import 'server-only'
 
@@ -101,6 +104,7 @@ function buildSyntheticMarket(
   payloadEntry: DiscoveredMarketsPayload['markets'][number],
   syncedAtIso: string,
   endDateIso: string | null,
+  teamLookup: TeamLogoLookup | null,
 ): Market {
   const conditionId = buildSyntheticConditionId(slug, payloadEntry.polymarket_market_id)
   const yesPrice = payloadEntry.outcome_prices ? Number.parseFloat(payloadEntry.outcome_prices[0]) : null
@@ -115,6 +119,13 @@ function buildSyntheticMarket(
     buildSyntheticOutcome(conditionId, 1, noToken, noPrice, syncedAtIso),
   ]
 
+  // Bundle B (futures logos): prefer a per-team logo from `teams_cache` over
+  // the Polymarket generic event banner. Polymarket's `/events?slug=X`
+  // response returns the same banner for every market on these 5 futures
+  // slugs (NBA / NHL / MLB / NFL / UCL Championship). The `/teams?league=X`
+  // endpoint has per-team logos; the teams sync cron caches them.
+  const teamLogoUrl = teamLookup?.find(payloadEntry.short_title) ?? null
+
   return {
     condition_id: conditionId,
     question_id: '',
@@ -122,7 +133,7 @@ function buildSyntheticMarket(
     title: payloadEntry.short_title,
     slug: payloadEntry.slug ?? payloadEntry.polymarket_market_id,
     short_title: payloadEntry.short_title,
-    icon_url: payloadEntry.icon_url ?? '',
+    icon_url: teamLogoUrl ?? payloadEntry.icon_url ?? '',
     is_active: payloadEntry.is_active,
     is_resolved: payloadEntry.is_closed,
     block_number: 0,
@@ -160,6 +171,7 @@ function buildSyntheticMarket(
 export function buildSyntheticEvent(
   row: DiscoveredEventRow,
   payload: DiscoveredMarketsPayload,
+  teamLookup: TeamLogoLookup | null = null,
 ): Event {
   // Synthetic event id namespaced by the discovery prefix to avoid colliding
   // with Kuest's ULID space.
@@ -170,7 +182,7 @@ export function buildSyntheticEvent(
   const mainTag = metadata?.league ?? 'sports'
 
   const markets: Market[] = payload.markets.map(entry =>
-    buildSyntheticMarket(eventId, row.slug, entry, syncedAtIso, endDateIso),
+    buildSyntheticMarket(eventId, row.slug, entry, syncedAtIso, endDateIso, teamLookup),
   )
 
   const activeCount = markets.filter(m => m.is_active && !m.is_resolved).length
@@ -251,7 +263,27 @@ export async function loadDiscoveredEventPageData(slug: string): Promise<EventPa
     return null
   }
 
-  const event = buildSyntheticEvent(row, payload)
+  // Bundle B (futures logos): when the slug has a registered league with a
+  // `teams_cache` league key (currently all 5 day-1 slugs do), preload the
+  // league's teams in one DB round-trip and build an in-memory lookup. This
+  // gets passed to `buildSyntheticEvent` → `buildSyntheticMarket` so each
+  // market's `icon_url` can be overridden with the per-team logo. Pure-
+  // synchronous lookups per market; one DB call per page render at the
+  // `'use cache'` boundary.
+  //
+  // The `cacheTag(cacheTags.teamsCache(league))` makes this output get busted
+  // when the teams-cache sync route fires `revalidateTag(teamsCache(league))`.
+  const metadata = getDiscoveredSlugMetadata(slug)
+  let teamLookup: TeamLogoLookup | null = null
+  if (metadata) {
+    cacheTag(cacheTags.teamsCache(metadata.league))
+    const { data: teamRows } = await TeamsCacheRepository.listByLeague(metadata.league)
+    if (teamRows && teamRows.length > 0) {
+      teamLookup = buildTeamLogoLookup(teamRows, metadata.league)
+    }
+  }
+
+  const event = buildSyntheticEvent(row, payload, teamLookup)
 
   return {
     event,
