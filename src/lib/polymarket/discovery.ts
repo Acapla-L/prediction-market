@@ -188,7 +188,14 @@ export function buildSyntheticEvent(
   const activeCount = markets.filter(m => m.is_active && !m.is_resolved).length
   const totalVolume = markets.reduce((sum, m) => sum + (m.volume ?? 0), 0)
   const status: Event['status'] = activeCount > 0 ? 'active' : 'resolved'
-  const firstIcon = markets.find(m => m.icon_url)?.icon_url ?? ''
+  // Event-level featured image (rendered by EventHeader.tsx at the top of the
+  // page next to the title) must source from the RAW Polymarket payload, NOT
+  // from the synthesized markets — Bundle B overrides per-market icon_url
+  // with team logos, so deriving the event icon from a synthesized market
+  // would surface the first team's logo as the event banner. Polymarket's
+  // event-level banner (same across all markets in the payload) is what
+  // belongs at the page header.
+  const firstIcon = payload.markets.find(entry => entry.icon_url)?.icon_url ?? ''
 
   // Prefer the Polymarket Gamma event creation timestamp (captured during
   // sync) so the chart's "ALL" range covers full Polymarket history. Falls

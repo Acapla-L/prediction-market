@@ -178,6 +178,37 @@ describe('loadDiscoveredEventPageData — team logo enrichment', () => {
     expect(calls).toContain(cacheTags.teamsCache('nba'))
   })
 
+  it('event.icon_url stays as the original Polymarket banner — NOT the first team logo (regression guard)', async () => {
+    // Bundle B introduced a bug where event.icon_url (the big square next to
+    // the event title in EventHeader.tsx:152) was derived from
+    // markets[0].icon_url AFTER the team-logo override, so the event-level
+    // featured image became the first team's logo (e.g. Atlanta Hawks logo
+    // for /event/2026-nba-champion) instead of the original Polymarket
+    // event-level banner. The fix derives event.icon_url from the RAW
+    // payload.markets[0].icon_url (pre-override) so the event banner stays
+    // intact while per-outcome rows still get team logos.
+    mockedRepo.getBySlug.mockResolvedValue({ data: makeNbaRow(), error: null })
+    mockedTeamsRepo.listByLeague.mockResolvedValue({
+      data: [
+        makeTeamRow({ league: 'nba', name: 'Hawks', abbreviation: 'atl', logoUrl: 'https://cdn/atlanta-hawks.png' }),
+        makeTeamRow({ league: 'nba', name: 'Lakers', abbreviation: 'lal', logoUrl: 'https://cdn/los-angeles-lakers.png' }),
+      ],
+      error: null,
+    })
+
+    const result = await loadDiscoveredEventPageData('2026-nba-champion')
+
+    // Event-level icon must be the raw Polymarket banner (same on every
+    // market in the fixture payload), NOT the Atlanta Hawks logo (which
+    // is the first market's overridden icon).
+    expect(result!.event.icon_url).toBe('https://polymarket.com/nba-generic-banner.jpg')
+    expect(result!.event.icon_url).not.toBe('https://cdn/atlanta-hawks.png')
+
+    // Markets still get per-team logos (preserves Bundle B's intended fix).
+    const hawks = result!.event.markets.find(m => m.short_title === 'Atlanta Hawks')!
+    expect(hawks.icon_url).toBe('https://cdn/atlanta-hawks.png')
+  })
+
   it('does not query teams_cache for slugs without metadata (returns null event)', async () => {
     // Unknown slug → no metadata → no teams_cache query. Repo returns no row,
     // function returns null.

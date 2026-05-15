@@ -16,6 +16,12 @@ import { cn } from '@/lib/utils'
 // route (Phase B v2 v3 soccer rollout — sport-route alias `soccer` resolves
 // via all home_first soccer leagues; UCL games appear there once UCL ships).
 // FIFA World Cup gets its own `/sports/fifa-world-cup/games` list page.
+// NFL has no per-game discovery yet (off-season May, no active Gamma events)
+// — Option 1 from `docs/plans/post-pr23-investigation-and-bundles-plan-2026-05-14.md`:
+// point NFL nav at the verified-working Super Bowl futures page instead of
+// the broken `/nfl` Kuest tag-page (which surfaced "Pro Football CBA" and
+// other off-season noise). Revisit when NFL per-game ships or when a
+// `/sports/{league}/props` route lands.
 //
 // MLB tab points at `/sports/baseball/games` (sport-route alias) rather than
 // `/sports/mlb/games` (registry slug) per Allan's 2026-05-08 directive — both
@@ -32,6 +38,7 @@ const LEAGUE_HREF_MAP: Readonly<Record<string, Route>> = {
   mls: '/sports/soccer/games' as Route,
   ucl: '/sports/soccer/games' as Route,
   fifwc: '/sports/fifa-world-cup/games' as Route,
+  nfl: '/event/big-game-champion-2027' as Route,
 }
 
 function getMainTagHref(slug: string, dynamicHomeCategorySlugSet: ReadonlySet<string>): Route {
