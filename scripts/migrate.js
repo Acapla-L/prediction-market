@@ -232,7 +232,7 @@ async function createCleanJobsCron(sql) {
       PERFORM cron.unschedule(job_id);
     END IF;
 
-    PERFORM cron.schedule('clean-jobs', '15 * * * *', cmd);
+    PERFORM cron.schedule('clean-jobs', '14 * * * *', cmd);
   END $$;`
 
   await sql.unsafe(sqlQuery, [], { simple: true })
@@ -249,7 +249,7 @@ async function createSyncCron(sql, options) {
 async function createSyncEventsCron(sql, siteUrl, cronSecret) {
   await createSyncCron(sql, {
     jobName: 'sync-events',
-    schedule: '2,11,20,29,38,47,56 * * * *',
+    schedule: '9,19,29,39,49,59 * * * *',
     endpointPath: '/api/sync/events',
     siteUrl,
     cronSecret,
@@ -259,7 +259,7 @@ async function createSyncEventsCron(sql, siteUrl, cronSecret) {
 async function createSyncVolumeCron(sql, siteUrl, cronSecret) {
   await createSyncCron(sql, {
     jobName: 'sync-volume',
-    schedule: '16,46 * * * *',
+    schedule: '6,36 * * * *',
     endpointPath: '/api/sync/volume',
     siteUrl,
     cronSecret,
@@ -269,7 +269,7 @@ async function createSyncVolumeCron(sql, siteUrl, cronSecret) {
 async function createSyncTranslationsCron(sql, siteUrl, cronSecret) {
   await createSyncCron(sql, {
     jobName: 'sync-translations',
-    schedule: '13,37 * * * *',
+    schedule: '2,32 * * * *',
     endpointPath: '/api/sync/translations',
     siteUrl,
     cronSecret,
@@ -279,7 +279,7 @@ async function createSyncTranslationsCron(sql, siteUrl, cronSecret) {
 async function createSyncResolutionCron(sql, siteUrl, cronSecret) {
   await createSyncCron(sql, {
     jobName: 'sync-resolution',
-    schedule: '5-55/10 * * * *',
+    schedule: '8,18,28,38,48,58 * * * *',
     endpointPath: '/api/sync/resolution',
     siteUrl,
     cronSecret,
@@ -289,7 +289,7 @@ async function createSyncResolutionCron(sql, siteUrl, cronSecret) {
 async function createSyncEventCreationsCron(sql, siteUrl, cronSecret) {
   await createSyncCron(sql, {
     jobName: 'sync-event-creations',
-    schedule: '0,30 * * * *',
+    schedule: '11,41 * * * *',
     endpointPath: '/api/sync/event-creations',
     siteUrl,
     cronSecret,
@@ -301,7 +301,7 @@ async function createSyncPolymarketDiscoveryCron(sql, siteUrl, cronSecret) {
   // NFL / UCL champions). Phase A v2 plan §A.3.
   await createSyncCron(sql, {
     jobName: 'sync-polymarket-discovery',
-    schedule: '7 * * * *',
+    schedule: '4 * * * *',
     endpointPath: '/api/sync/polymarket-discovery',
     siteUrl,
     cronSecret,
@@ -314,7 +314,7 @@ async function createSyncPolymarketGamesDiscoveryCron(sql, siteUrl, cronSecret) 
   // when the flag is off the route returns immediately without polling.
   await createSyncCron(sql, {
     jobName: 'sync-polymarket-games-discovery',
-    schedule: '13 * * * *',
+    schedule: '22 * * * *',
     endpointPath: '/api/sync/polymarket-games-discovery',
     siteUrl,
     cronSecret,
@@ -335,12 +335,13 @@ async function createSyncPolymarketGamesRefreshCron(sql, siteUrl, cronSecret) {
 
 async function createSyncPolymarketTeamsCron(sql, siteUrl, cronSecret) {
   // Hourly teams sync — populates team metadata (logos, names) for the
-  // sports template. Offset to minute 17 to avoid collision with existing
-  // hourly crons (sync-polymarket-discovery at :07, sync-polymarket-games-discovery at :13).
+  // sports template. Scheduled at minute 42 — 20 min after polymarket-games-discovery
+  // (:22) and 18 min before the next-hour polymarket-discovery (:04). See cron-stagger
+  // table in docs/plans/cascade-fix-plan-2026-05-15.md §PR 1 for the full minute layout.
   // Phase B v2 plan §D and §F.
   await createSyncCron(sql, {
     jobName: 'sync-polymarket-teams',
-    schedule: '17 * * * *',
+    schedule: '42 * * * *',
     endpointPath: '/api/sync/polymarket-teams',
     siteUrl,
     cronSecret,
