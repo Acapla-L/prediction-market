@@ -14,7 +14,14 @@
 -- WHEN TO USE THIS FILE:
 --   Recommended deploy sequence is SQL-first:
 --     1. Wait until UTC clock is NOT within 5 min of :04 / :22 / :42 (heavy job ticks).
---     2. Apply this block via Supabase MCP `apply_migration` (or dashboard SQL editor).
+--     2. Apply this block via Supabase MCP `execute_sql` (or dashboard SQL editor).
+--        NOTE: prefer `execute_sql` over `apply_migration` for this file. This is a
+--        one-off operator action that is intentionally placed OUTSIDE the auto-applied
+--        `src/lib/db/migrations/` directory (see WHY THIS FILE IS HERE above). Using
+--        `execute_sql` keeps it out of the Supabase migration tracker, which is
+--        reserved for permanent state-conveying schema migrations. The steady-state
+--        path for future deploys is `scripts/migrate.js`'s own `cron.unschedule +
+--        cron.schedule` re-registration on `npm run db:push`.
 --     3. Verify with `SELECT jobid, jobname, schedule, active FROM cron.job ORDER BY jobname`.
 --        DO NOT run `SELECT *` — that column-leaks the CRON_SECRET bearer token in `command`.
 --     4. Watch ≥5 min for any immediate fallout in Vercel runtime logs.
