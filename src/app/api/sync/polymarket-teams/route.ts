@@ -186,7 +186,9 @@ async function fetchAllTeams(apiCode: string): Promise<FetchAllTeamsResult> {
 /**
  * GET / POST /api/sync/polymarket-teams
  *
- * Per-league teams cache sync (Phase B v2). Triggered hourly by pg_cron at :17.
+ * Per-league teams cache sync (Phase B v2). Triggered hourly by pg_cron at :42
+ * (rescheduled in PR 1 of the cascade fix sequence, 2026-05-16 — see
+ * docs/plans/cascade-fix-plan-2026-05-15.md §PR 1 for the full minute layout).
  * For each enabled Phase B league:
  *   1. Paginates `GET /teams?league=<apiCode>&limit&offset` from Polymarket Gamma
  *   2. Filters out league-level placeholders (e.g. MLB All-Star rosters)

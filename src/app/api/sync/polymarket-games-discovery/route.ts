@@ -41,7 +41,9 @@ const ARCHIVE_CUTOFF_MS = 24 * 60 * 60 * 1000
 /**
  * GET / POST /api/sync/polymarket-games-discovery
  *
- * Per-league discovery sync (Phase B). Triggered hourly by pg_cron at :13.
+ * Per-league discovery sync (Phase B). Triggered hourly by pg_cron at :22
+ * (rescheduled in PR 1 of the cascade fix sequence, 2026-05-16 — see
+ * docs/plans/cascade-fix-plan-2026-05-15.md §PR 1 for the full minute layout).
  * For each enabled league:
  *   1. Polls `GET /events?series_id=<N>&active=true&closed=false` with
  *      limit=50 offset-paginated until a short page (fewer than 50 rows)
