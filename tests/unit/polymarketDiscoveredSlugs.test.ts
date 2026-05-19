@@ -10,13 +10,15 @@ import {
 } from '@/lib/polymarket/discovered-slugs'
 
 describe('dISCOVERED_POLYMARKET_SLUGS allowlist', () => {
-  it('contains exactly the five day-1 slugs', () => {
+  it('contains exactly the seven allowlist slugs (5 day-1 + 2 French Open 2026-05-19)', () => {
     expect([...DISCOVERED_POLYMARKET_SLUGS]).toEqual([
       '2026-nba-champion',
       'mlb-world-series-champion-2026',
       '2026-nhl-stanley-cup-champion',
       'big-game-champion-2027',
       'uefa-champions-league-winner',
+      '2026-mens-french-open-winner',
+      '2026-womens-french-open-winner',
     ])
   })
 
@@ -65,7 +67,9 @@ describe('dISCOVERED_SLUG_METADATA', () => {
   })
 
   it('league values map to recognised sport identifiers', () => {
-    const validLeagues = new Set(['nba', 'mlb', 'nhl', 'nfl', 'ucl'])
+    // Recognised league identifiers: 5 day-1 sport-league codes + 'atp'/'wta'
+    // for tennis bracket discrimination (added 2026-05-19 with French Open).
+    const validLeagues = new Set(['nba', 'mlb', 'nhl', 'nfl', 'ucl', 'atp', 'wta'])
     for (const meta of DISCOVERED_SLUG_METADATA) {
       expect(validLeagues.has(meta.league)).toBe(true)
     }

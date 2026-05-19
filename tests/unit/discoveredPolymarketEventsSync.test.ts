@@ -131,7 +131,7 @@ describe('/api/sync/polymarket-discovery — happy path', () => {
     mockedRepo.markFailure.mockResolvedValue(makeFailureOk())
   })
 
-  it('iterates all five day-1 slugs and upserts each on Gamma success', async () => {
+  it('iterates all seven allowlist slugs and upserts each on Gamma success', async () => {
     mockedFetch.mockImplementation(async slug => makeGammaEvent(slug))
 
     const res = await GET(makeRequest())
@@ -139,11 +139,11 @@ describe('/api/sync/polymarket-discovery — happy path', () => {
 
     expect(res.status).toBe(200)
     expect(body.ok).toBe(true)
-    expect(body.results).toHaveLength(5)
+    expect(body.results).toHaveLength(7)
     expect(body.results.every(r => r.status === 'ok')).toBe(true)
     expect(body.results.every(r => r.market_count === 1)).toBe(true)
-    expect(mockedFetch).toHaveBeenCalledTimes(5)
-    expect(mockedRepo.upsertSuccess).toHaveBeenCalledTimes(5)
+    expect(mockedFetch).toHaveBeenCalledTimes(7)
+    expect(mockedRepo.upsertSuccess).toHaveBeenCalledTimes(7)
     expect(mockedRepo.markFailure).not.toHaveBeenCalled()
   })
 
@@ -170,11 +170,13 @@ describe('/api/sync/polymarket-discovery — happy path', () => {
 
     await GET(makeRequest())
 
-    // 5 per-slug tag invalidations + 1 eventsList
-    expect(mockedRevalidate).toHaveBeenCalledTimes(6)
+    // 7 per-slug tag invalidations + 1 eventsList
+    expect(mockedRevalidate).toHaveBeenCalledTimes(8)
     const tagCalls = mockedRevalidate.mock.calls.map(c => c[0])
     expect(tagCalls).toContain('polymarket-discovered:event:2026-nba-champion')
     expect(tagCalls).toContain('polymarket-discovered:event:uefa-champions-league-winner')
+    expect(tagCalls).toContain('polymarket-discovered:event:2026-mens-french-open-winner')
+    expect(tagCalls).toContain('polymarket-discovered:event:2026-womens-french-open-winner')
     expect(tagCalls).toContain('events:list')
   })
 
@@ -184,13 +186,15 @@ describe('/api/sync/polymarket-discovery — happy path', () => {
     await GET(makeRequest())
 
     // One revalidatePath per successful slug
-    expect(mockedRevalidatePath).toHaveBeenCalledTimes(5)
+    expect(mockedRevalidatePath).toHaveBeenCalledTimes(7)
     const pathCalls = mockedRevalidatePath.mock.calls.map(c => c[0])
     expect(pathCalls).toContain('/event/2026-nba-champion')
     expect(pathCalls).toContain('/event/uefa-champions-league-winner')
     expect(pathCalls).toContain('/event/mlb-world-series-champion-2026')
     expect(pathCalls).toContain('/event/2026-nhl-stanley-cup-champion')
     expect(pathCalls).toContain('/event/big-game-champion-2027')
+    expect(pathCalls).toContain('/event/2026-mens-french-open-winner')
+    expect(pathCalls).toContain('/event/2026-womens-french-open-winner')
   })
 
   it('does NOT call revalidatePath for slugs that failed to sync', async () => {
@@ -230,7 +234,7 @@ describe('/api/sync/polymarket-discovery — partial failure', () => {
     expect(res.status).toBe(200)
     expect(body.results.every(r => r.status === 'gamma_404')).toBe(true)
     expect(mockedRepo.upsertSuccess).not.toHaveBeenCalled()
-    expect(mockedRepo.markFailure).toHaveBeenCalledTimes(5)
+    expect(mockedRepo.markFailure).toHaveBeenCalledTimes(7)
     expect(mockedRepo.markFailure.mock.calls[0]?.[0]?.status).toBe('gamma_404')
   })
 
@@ -257,9 +261,9 @@ describe('/api/sync/polymarket-discovery — partial failure', () => {
     const failSlugs = body.results.filter(r => r.status !== 'ok').map(r => r.slug)
 
     expect(okSlugs.sort()).toEqual(['2026-nba-champion', 'uefa-champions-league-winner'])
-    expect(failSlugs).toHaveLength(3)
+    expect(failSlugs).toHaveLength(5)
     expect(mockedRepo.upsertSuccess).toHaveBeenCalledTimes(2)
-    expect(mockedRepo.markFailure).toHaveBeenCalledTimes(3)
+    expect(mockedRepo.markFailure).toHaveBeenCalledTimes(5)
     // 2 per-slug tags + 1 eventsList
     expect(mockedRevalidate).toHaveBeenCalledTimes(3)
     // 2 revalidatePath for the 2 successful slugs
@@ -291,6 +295,6 @@ describe('/api/sync/polymarket-discovery — partial failure', () => {
     expect(body.results[0]?.error).toBe('db down')
     expect(mockedRevalidate).not.toHaveBeenCalled()
     // markFailure is invoked as a fallback after the upsert error
-    expect(mockedRepo.markFailure).toHaveBeenCalledTimes(5)
+    expect(mockedRepo.markFailure).toHaveBeenCalledTimes(7)
   })
 })

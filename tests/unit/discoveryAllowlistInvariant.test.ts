@@ -53,8 +53,8 @@ describe('client-inline allowlist matches server-side allowlist', () => {
     expect(inline).toEqual([...DISCOVERED_POLYMARKET_SLUGS])
   })
 
-  it('inline list contains exactly 5 slugs (day-1 allowlist size)', () => {
-    expect(extractInlineSlugs(source)).toHaveLength(5)
+  it('inline list contains exactly 7 slugs (day-1 allowlist + French Open content add 2026-05-19)', () => {
+    expect(extractInlineSlugs(source)).toHaveLength(7)
   })
 
   it('inline list and server list have identical set semantics (no order-dependent skew)', () => {
