@@ -8,12 +8,23 @@ import { DEFAULT_LOCALE, NON_DEFAULT_LOCALES } from '@/i18n/locales'
 import { cacheTags } from '@/lib/cache-tags'
 import { resolveCategorySidebarData } from '@/lib/category-sidebar-config'
 import { event_tags, events, tag_translations, tags, v_main_tag_subcategories } from '@/lib/db/schema/events/tables'
+import { getOrCreateModuleCache } from '@/lib/db/utils/module-cache'
 import { runQuery } from '@/lib/db/utils/run-query'
 import { db } from '@/lib/drizzle'
 import { buildPublicEventListVisibilityCondition, HIDE_FROM_NEW_TAG_SLUG } from '@/lib/event-visibility'
 import { filterHomeEvents } from '@/lib/home-events'
 
 const EXCLUDED_SUB_SLUGS = new Set([HIDE_FROM_NEW_TAG_SLUG])
+
+// Per-Vercel-instance burst absorption for the main-nav builder. PR 2 of
+// the cascade-fix sequence (RC-1) — admin mutations propagate via the 60s
+// TTL, NOT via `updateTag(cacheTags.mainTags(locale))` (that busts the
+// outer Next.js `'use cache'` layer, not this module cache). Per-locale
+// cardinality is 6 (en/de/es/pt/fr/zh).
+const mainTagsModuleCache = getOrCreateModuleCache<SupportedLocale, MainTagsResult>(
+  'main-tags',
+  60_000,
+)
 
 interface ListTagsParams {
   limit?: number
@@ -349,236 +360,269 @@ export const TagRepository = {
     // tag-driven — no 15-min time-based background re-renders of this DB read
     // (which the platform layout depends on, so a slow one hurts every page).
     cacheLife('max')
-    const { data: mainTagsResult, error } = await runQuery(async () => {
-      const result = await db
-        .select({
-          id: tags.id,
-          name: tags.name,
-          slug: tags.slug,
-          is_main_category: tags.is_main_category,
-          is_hidden: tags.is_hidden,
-          display_order: tags.display_order,
-          active_markets_count: tags.active_markets_count,
-          created_at: tags.created_at,
-          updated_at: tags.updated_at,
-        })
-        .from(tags)
-        .where(and(
-          eq(tags.is_main_category, true),
-          eq(tags.is_hidden, false),
-        ))
-        .orderBy(asc(tags.display_order), asc(tags.name))
 
-      return { data: result, error: null }
-    })
+    // PR 2 (cascade-fix RC-1): in-place body wrap with a per-instance module
+    // cache that survives `'use cache'` invalidations. Admin propagation is
+    // bounded by the 60s TTL on the module cache (NOT by `updateTag` — that
+    // busts the outer Next.js cache only). Throws from the fill function
+    // propagate cleanly through the module-cache wrapper without poisoning
+    // the cache, so PR #21's throw-to-sentinel hardening (the `throw new
+    // Error(...)` sites at 'Failed to load main category tags' + 'Failed to
+    // load main category translations') is preserved.
+    return mainTagsModuleCache.get(locale, async (): Promise<MainTagsResult> => {
+      const { data: mainTagsResult, error } = await runQuery(async () => {
+        const result = await db
+          .select({
+            id: tags.id,
+            name: tags.name,
+            slug: tags.slug,
+            is_main_category: tags.is_main_category,
+            is_hidden: tags.is_hidden,
+            display_order: tags.display_order,
+            active_markets_count: tags.active_markets_count,
+            created_at: tags.created_at,
+            updated_at: tags.updated_at,
+          })
+          .from(tags)
+          .where(and(
+            eq(tags.is_main_category, true),
+            eq(tags.is_hidden, false),
+          ))
+          .orderBy(asc(tags.display_order), asc(tags.name))
 
-    if (error || !mainTagsResult) {
-      const errorMessage = typeof error === 'string' ? error : 'Unknown error'
-      // Throw rather than return — a returned sentinel would be cached by
-      // `'use cache'` and collapse the nav for the cache TTL. See class doc.
-      throw new Error(`Failed to load main category tags: ${errorMessage}`)
-    }
-
-    const mainVisibleTags = mainTagsResult
-    const mainSlugs = mainVisibleTags.map(tag => tag.slug)
-
-    const { data: subcategoriesResult, error: viewError } = await runQuery(async () => {
-      const result = await db
-        .select({
-          main_tag_id: v_main_tag_subcategories.main_tag_id,
-          main_tag_slug: v_main_tag_subcategories.main_tag_slug,
-          main_tag_name: v_main_tag_subcategories.main_tag_name,
-          main_tag_is_hidden: v_main_tag_subcategories.main_tag_is_hidden,
-          sub_tag_id: v_main_tag_subcategories.sub_tag_id,
-          sub_tag_name: v_main_tag_subcategories.sub_tag_name,
-          sub_tag_slug: v_main_tag_subcategories.sub_tag_slug,
-          sub_tag_is_main_category: v_main_tag_subcategories.sub_tag_is_main_category,
-          sub_tag_is_hidden: v_main_tag_subcategories.sub_tag_is_hidden,
-          active_markets_count: v_main_tag_subcategories.active_markets_count,
-          last_market_activity_at: v_main_tag_subcategories.last_market_activity_at,
-        })
-        .from(v_main_tag_subcategories)
-        .where(inArray(v_main_tag_subcategories.main_tag_slug, mainSlugs))
-
-      return { data: result, error: null }
-    })
-
-    if (viewError || !subcategoriesResult) {
-      const tagsWithChilds = mainVisibleTags.map((tag: any) => ({ ...tag, childs: [] }))
-      const errorMessage = typeof viewError === 'string' ? viewError : 'Unknown error'
-      return { data: tagsWithChilds, error: errorMessage, globalChilds: [] }
-    }
-
-    const visibleMainEventTags = alias(event_tags, 'visible_main_event_tags')
-    const visibleMainTags = alias(tags, 'visible_main_tags')
-
-    const { data: visibleEventTagRows } = await runQuery(async () => {
-      const result = await db
-        .select({
-          event_id: events.id,
-          event_slug: events.slug,
-          event_status: events.status,
-          series_slug: events.series_slug,
-          end_date: events.end_date,
-          created_at: events.created_at,
-          updated_at: events.updated_at,
-          tag_slug: tags.slug,
-          tag_is_main_category: tags.is_main_category,
-        })
-        .from(events)
-        .innerJoin(event_tags, eq(event_tags.event_id, events.id))
-        .innerJoin(tags, eq(event_tags.tag_id, tags.id))
-        .where(and(
-          eq(events.status, 'active'),
-          eq(events.is_hidden, false),
-          eq(tags.is_hidden, false),
-          buildPublicEventListVisibilityCondition(events.id),
-          exists(
-            db.select()
-              .from(visibleMainEventTags)
-              .innerJoin(visibleMainTags, eq(visibleMainEventTags.tag_id, visibleMainTags.id))
-              .where(and(
-                eq(visibleMainEventTags.event_id, events.id),
-                inArray(visibleMainTags.slug, mainSlugs),
-                eq(visibleMainTags.is_main_category, true),
-                eq(visibleMainTags.is_hidden, false),
-              )),
-          ),
-        ))
-
-      return { data: result, error: null }
-    })
-
-    const sidebarCountEventsById = new Map<string, SidebarCountEventCandidate>()
-
-    for (const row of visibleEventTagRows ?? []) {
-      const eventId = row.event_id
-      const existing: SidebarCountEventCandidate = sidebarCountEventsById.get(eventId)
-        ?? createSidebarCountEventCandidate({
-          event_id: row.event_id,
-          event_slug: row.event_slug,
-          event_status: row.event_status as SidebarCountEventCandidate['status'],
-          series_slug: row.series_slug,
-          end_date: row.end_date,
-          created_at: row.created_at,
-          updated_at: row.updated_at,
-        })
-
-      existing.tags.push({
-        slug: row.tag_slug,
-        isMainCategory: Boolean(row.tag_is_main_category),
+        return { data: result, error: null }
       })
 
-      sidebarCountEventsById.set(eventId, existing)
-    }
-
-    const currentTimestamp = await getCurrentTimestampMs()
-    const visibleSidebarCountEvents = filterHomeEvents(Array.from(sidebarCountEventsById.values()), {
-      currentTimestamp,
-    })
-
-    const subcategoryEventCounts = new Map<string, number>()
-    const mainCategoryEventCounts = new Map<string, number>()
-
-    const translationTagIds = new Set<number>()
-    for (const tag of mainVisibleTags) {
-      translationTagIds.add(tag.id)
-    }
-    for (const subtag of subcategoriesResult) {
-      if (subtag.main_tag_id) {
-        translationTagIds.add(subtag.main_tag_id)
+      if (error || !mainTagsResult) {
+        const errorMessage = typeof error === 'string' ? error : 'Unknown error'
+        // Throw rather than return — a returned sentinel would be cached by
+        // `'use cache'` and collapse the nav for the cache TTL. See class doc.
+        throw new Error(`Failed to load main category tags: ${errorMessage}`)
       }
-      if (subtag.sub_tag_id) {
-        translationTagIds.add(subtag.sub_tag_id)
+
+      const mainVisibleTags = mainTagsResult
+      const mainSlugs = mainVisibleTags.map(tag => tag.slug)
+
+      const { data: subcategoriesResult, error: viewError } = await runQuery(async () => {
+        const result = await db
+          .select({
+            main_tag_id: v_main_tag_subcategories.main_tag_id,
+            main_tag_slug: v_main_tag_subcategories.main_tag_slug,
+            main_tag_name: v_main_tag_subcategories.main_tag_name,
+            main_tag_is_hidden: v_main_tag_subcategories.main_tag_is_hidden,
+            sub_tag_id: v_main_tag_subcategories.sub_tag_id,
+            sub_tag_name: v_main_tag_subcategories.sub_tag_name,
+            sub_tag_slug: v_main_tag_subcategories.sub_tag_slug,
+            sub_tag_is_main_category: v_main_tag_subcategories.sub_tag_is_main_category,
+            sub_tag_is_hidden: v_main_tag_subcategories.sub_tag_is_hidden,
+            active_markets_count: v_main_tag_subcategories.active_markets_count,
+            last_market_activity_at: v_main_tag_subcategories.last_market_activity_at,
+          })
+          .from(v_main_tag_subcategories)
+          .where(inArray(v_main_tag_subcategories.main_tag_slug, mainSlugs))
+
+        return { data: result, error: null }
+      })
+
+      if (viewError || !subcategoriesResult) {
+        const tagsWithChilds = mainVisibleTags.map((tag: any) => ({ ...tag, childs: [] }))
+        const errorMessage = typeof viewError === 'string' ? viewError : 'Unknown error'
+        return { data: tagsWithChilds, error: errorMessage, globalChilds: [] }
       }
-    }
 
-    const { data: localizedNamesByTagId, error: translationError } = await getLocalizedNamesByTagId(
-      Array.from(translationTagIds),
-      locale,
-    )
+      const visibleMainEventTags = alias(event_tags, 'visible_main_event_tags')
+      const visibleMainTags = alias(tags, 'visible_main_tags')
 
-    if (translationError) {
-      // Throw rather than return — see class doc; a cached null-data sentinel
-      // would collapse the nav for the cache TTL.
-      throw new Error(`Failed to load main category translations: ${translationError}`)
-    }
+      const { data: visibleEventTagRows } = await runQuery(async () => {
+        const result = await db
+          .select({
+            event_id: events.id,
+            event_slug: events.slug,
+            event_status: events.status,
+            series_slug: events.series_slug,
+            end_date: events.end_date,
+            created_at: events.created_at,
+            updated_at: events.updated_at,
+            tag_slug: tags.slug,
+            tag_is_main_category: tags.is_main_category,
+          })
+          .from(events)
+          .innerJoin(event_tags, eq(event_tags.event_id, events.id))
+          .innerJoin(tags, eq(event_tags.tag_id, tags.id))
+          .where(and(
+            eq(events.status, 'active'),
+            eq(events.is_hidden, false),
+            eq(tags.is_hidden, false),
+            buildPublicEventListVisibilityCondition(events.id),
+            exists(
+              db.select()
+                .from(visibleMainEventTags)
+                .innerJoin(visibleMainTags, eq(visibleMainEventTags.tag_id, visibleMainTags.id))
+                .where(and(
+                  eq(visibleMainEventTags.event_id, events.id),
+                  inArray(visibleMainTags.slug, mainSlugs),
+                  eq(visibleMainTags.is_main_category, true),
+                  eq(visibleMainTags.is_hidden, false),
+                )),
+            ),
+          ))
 
-    const grouped = new Map<string, { name: string, slug: string, count: number }[]>()
-    const globalCounts = new Map<string, { name: string, slug: string, count: number }>()
+        return { data: result, error: null }
+      })
 
-    const mainSlugSet = new Set(mainSlugs)
+      const sidebarCountEventsById = new Map<string, SidebarCountEventCandidate>()
 
-    for (const event of visibleSidebarCountEvents) {
-      const mainTagsForEvent = new Set(
-        event.tags
-          .filter(tag => tag.isMainCategory && mainSlugSet.has(tag.slug))
-          .map(tag => tag.slug),
-      )
-      const subTagsForEvent = new Set(
-        event.tags
-          .filter(tag => !tag.isMainCategory && !mainSlugSet.has(tag.slug) && !EXCLUDED_SUB_SLUGS.has(tag.slug))
-          .map(tag => tag.slug),
-      )
+      for (const row of visibleEventTagRows ?? []) {
+        const eventId = row.event_id
+        const existing: SidebarCountEventCandidate = sidebarCountEventsById.get(eventId)
+          ?? createSidebarCountEventCandidate({
+            event_id: row.event_id,
+            event_slug: row.event_slug,
+            event_status: row.event_status as SidebarCountEventCandidate['status'],
+            series_slug: row.series_slug,
+            end_date: row.end_date,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+          })
 
-      for (const mainSlug of mainTagsForEvent) {
-        mainCategoryEventCounts.set(mainSlug, (mainCategoryEventCounts.get(mainSlug) ?? 0) + 1)
+        existing.tags.push({
+          slug: row.tag_slug,
+          isMainCategory: Boolean(row.tag_is_main_category),
+        })
 
-        for (const subSlug of subTagsForEvent) {
-          const key = `${mainSlug}::${subSlug}`
-          subcategoryEventCounts.set(key, (subcategoryEventCounts.get(key) ?? 0) + 1)
+        sidebarCountEventsById.set(eventId, existing)
+      }
+
+      const currentTimestamp = await getCurrentTimestampMs()
+      const visibleSidebarCountEvents = filterHomeEvents(Array.from(sidebarCountEventsById.values()), {
+        currentTimestamp,
+      })
+
+      const subcategoryEventCounts = new Map<string, number>()
+      const mainCategoryEventCounts = new Map<string, number>()
+
+      const translationTagIds = new Set<number>()
+      for (const tag of mainVisibleTags) {
+        translationTagIds.add(tag.id)
+      }
+      for (const subtag of subcategoriesResult) {
+        if (subtag.main_tag_id) {
+          translationTagIds.add(subtag.main_tag_id)
+        }
+        if (subtag.sub_tag_id) {
+          translationTagIds.add(subtag.sub_tag_id)
         }
       }
-    }
 
-    for (const subtag of subcategoriesResult) {
-      if (
-        !subtag.sub_tag_slug
-        || mainSlugSet.has(subtag.sub_tag_slug)
-        || EXCLUDED_SUB_SLUGS.has(subtag.sub_tag_slug)
-        || subtag.sub_tag_is_hidden
-        || subtag.main_tag_is_hidden
-      ) {
-        continue
+      const { data: localizedNamesByTagId, error: translationError } = await getLocalizedNamesByTagId(
+        Array.from(translationTagIds),
+        locale,
+      )
+
+      if (translationError) {
+        // Throw rather than return — see class doc; a cached null-data sentinel
+        // would collapse the nav for the cache TTL.
+        throw new Error(`Failed to load main category translations: ${translationError}`)
       }
 
-      const localizedSubTagName = localizedNamesByTagId.get(subtag.sub_tag_id ?? -1) ?? subtag.sub_tag_name!
-      const current = grouped.get(subtag.main_tag_slug!) ?? []
-      const existingIndex = current.findIndex(item => item.slug === subtag.sub_tag_slug)
-      const nextCount = subcategoryEventCounts.get(`${subtag.main_tag_slug!}::${subtag.sub_tag_slug}`) ?? 0
+      const grouped = new Map<string, { name: string, slug: string, count: number }[]>()
+      const globalCounts = new Map<string, { name: string, slug: string, count: number }>()
 
-      if (nextCount <= 0) {
-        continue
-      }
+      const mainSlugSet = new Set(mainSlugs)
 
-      if (existingIndex >= 0) {
-        current[existingIndex] = {
-          name: localizedSubTagName,
-          slug: subtag.sub_tag_slug,
-          count: Math.max(current[existingIndex].count, nextCount),
+      for (const event of visibleSidebarCountEvents) {
+        const mainTagsForEvent = new Set(
+          event.tags
+            .filter(tag => tag.isMainCategory && mainSlugSet.has(tag.slug))
+            .map(tag => tag.slug),
+        )
+        const subTagsForEvent = new Set(
+          event.tags
+            .filter(tag => !tag.isMainCategory && !mainSlugSet.has(tag.slug) && !EXCLUDED_SUB_SLUGS.has(tag.slug))
+            .map(tag => tag.slug),
+        )
+
+        for (const mainSlug of mainTagsForEvent) {
+          mainCategoryEventCounts.set(mainSlug, (mainCategoryEventCounts.get(mainSlug) ?? 0) + 1)
+
+          for (const subSlug of subTagsForEvent) {
+            const key = `${mainSlug}::${subSlug}`
+            subcategoryEventCounts.set(key, (subcategoryEventCounts.get(key) ?? 0) + 1)
+          }
         }
       }
-      else {
-        current.push({
+
+      for (const subtag of subcategoriesResult) {
+        if (
+          !subtag.sub_tag_slug
+          || mainSlugSet.has(subtag.sub_tag_slug)
+          || EXCLUDED_SUB_SLUGS.has(subtag.sub_tag_slug)
+          || subtag.sub_tag_is_hidden
+          || subtag.main_tag_is_hidden
+        ) {
+          continue
+        }
+
+        const localizedSubTagName = localizedNamesByTagId.get(subtag.sub_tag_id ?? -1) ?? subtag.sub_tag_name!
+        const current = grouped.get(subtag.main_tag_slug!) ?? []
+        const existingIndex = current.findIndex(item => item.slug === subtag.sub_tag_slug)
+        const nextCount = subcategoryEventCounts.get(`${subtag.main_tag_slug!}::${subtag.sub_tag_slug}`) ?? 0
+
+        if (nextCount <= 0) {
+          continue
+        }
+
+        if (existingIndex >= 0) {
+          current[existingIndex] = {
+            name: localizedSubTagName,
+            slug: subtag.sub_tag_slug,
+            count: Math.max(current[existingIndex].count, nextCount),
+          }
+        }
+        else {
+          current.push({
+            name: localizedSubTagName,
+            slug: subtag.sub_tag_slug,
+            count: nextCount,
+          })
+        }
+
+        grouped.set(subtag.main_tag_slug!, current)
+
+        const globalExisting = globalCounts.get(subtag.sub_tag_slug)
+        globalCounts.set(subtag.sub_tag_slug, {
           name: localizedSubTagName,
           slug: subtag.sub_tag_slug,
-          count: nextCount,
+          count: (globalExisting?.count ?? 0) + nextCount,
         })
       }
 
-      grouped.set(subtag.main_tag_slug!, current)
+      const enhanced = mainVisibleTags.map((tag) => {
+        const localizedTagName = localizedNamesByTagId.get(tag.id) ?? tag.name
+        const sortedChilds = (grouped.get(tag.slug) ?? [])
+          .sort((a, b) => {
+            if (b.count === a.count) {
+              return a.name.localeCompare(b.name)
+            }
+            return b.count - a.count
+          })
+          .map(({ name, slug, count }) => ({ name, slug, count }))
+        const { childs: resolvedChilds, sidebarItems } = resolveCategorySidebarData({
+          categorySlug: tag.slug,
+          categoryCount: mainCategoryEventCounts.get(tag.slug) ?? 0,
+          childs: sortedChilds,
+        })
 
-      const globalExisting = globalCounts.get(subtag.sub_tag_slug)
-      globalCounts.set(subtag.sub_tag_slug, {
-        name: localizedSubTagName,
-        slug: subtag.sub_tag_slug,
-        count: (globalExisting?.count ?? 0) + nextCount,
+        return {
+          ...tag,
+          name: localizedTagName,
+          childs: resolvedChilds,
+          sidebarItems,
+        }
       })
-    }
 
-    const enhanced = mainVisibleTags.map((tag) => {
-      const localizedTagName = localizedNamesByTagId.get(tag.id) ?? tag.name
-      const sortedChilds = (grouped.get(tag.slug) ?? [])
+      const globalChilds = Array.from(globalCounts.values())
+        .filter(child => child.count > 0)
         .sort((a, b) => {
           if (b.count === a.count) {
             return a.name.localeCompare(b.name)
@@ -586,31 +630,9 @@ export const TagRepository = {
           return b.count - a.count
         })
         .map(({ name, slug, count }) => ({ name, slug, count }))
-      const { childs: resolvedChilds, sidebarItems } = resolveCategorySidebarData({
-        categorySlug: tag.slug,
-        categoryCount: mainCategoryEventCounts.get(tag.slug) ?? 0,
-        childs: sortedChilds,
-      })
 
-      return {
-        ...tag,
-        name: localizedTagName,
-        childs: resolvedChilds,
-        sidebarItems,
-      }
+      return { data: enhanced, error: null, globalChilds }
     })
-
-    const globalChilds = Array.from(globalCounts.values())
-      .filter(child => child.count > 0)
-      .sort((a, b) => {
-        if (b.count === a.count) {
-          return a.name.localeCompare(b.name)
-        }
-        return b.count - a.count
-      })
-      .map(({ name, slug, count }) => ({ name, slug, count }))
-
-    return { data: enhanced, error: null, globalChilds }
   },
 
   /**
