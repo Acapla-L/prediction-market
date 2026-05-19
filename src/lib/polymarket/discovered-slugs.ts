@@ -60,6 +60,18 @@ export const DISCOVERED_SLUG_METADATA: ReadonlyArray<DiscoveredSlugMetadata> = [
     canonical_title: 'Who will win the 2026 Women\'s French Open?',
     league: 'wta',
   },
+  {
+    slug: '2026-f1-drivers-champion',
+    display_label: '2026 F1 Drivers\' Champion',
+    canonical_title: 'Who will win the 2026 F1 Drivers\' Championship?',
+    league: 'f1',
+  },
+  {
+    slug: 'f1-constructors-champion',
+    display_label: '2026 F1 Constructors\' Champion',
+    canonical_title: 'Which team will win the 2026 F1 Constructors\' Championship?',
+    league: 'f1',
+  },
 ]
 
 /**
