@@ -1,6 +1,7 @@
 /**
- * Deploy-gate smoke test for the 6 high-stakes event pages (1 FIFA via Kuest +
- * 5 discovery slugs via the Polymarket sidecar). For each event asserts:
+ * Deploy-gate smoke test for the 8 high-stakes event pages (1 FIFA via Kuest +
+ * 7 discovery slugs via the Polymarket sidecar — 5 day-1 futures + 2 French
+ * Open winners added 2026-05-19). For each event asserts:
  *   1. Page renders without flipping to "Oops" (caught the 2026-05-05 metadata
  *      regression — see docs/audits/discovery-chart-gap-2026-05-05.md §A).
  *   2. Document title contains the expected event name (gates the
@@ -42,6 +43,10 @@ const CASES: readonly SmokeCase[] = [
   // Polymarket uses "NFL Champion" (trademark-safe) not "Super Bowl" in the
   // event title for this slug. Matches the actual sidecar payload.
   { slug: 'big-game-champion-2027', expectedTitleSubstring: 'NFL Champion' },
+  // French Open futures added 2026-05-19. Tennis is a new sport for Phase A v2;
+  // titles match Polymarket Gamma's `title` field verbatim.
+  { slug: '2026-mens-french-open-winner', expectedTitleSubstring: 'French Open' },
+  { slug: '2026-womens-french-open-winner', expectedTitleSubstring: 'French Open' },
 ] as const
 
 async function hashAccessCode(code: string): Promise<string> {

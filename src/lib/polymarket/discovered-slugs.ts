@@ -48,6 +48,18 @@ export const DISCOVERED_SLUG_METADATA: ReadonlyArray<DiscoveredSlugMetadata> = [
     canonical_title: 'Which club will win the UEFA Champions League?',
     league: 'ucl',
   },
+  {
+    slug: '2026-mens-french-open-winner',
+    display_label: '2026 Men\'s French Open Winner',
+    canonical_title: 'Who will win the 2026 Men\'s French Open?',
+    league: 'atp',
+  },
+  {
+    slug: '2026-womens-french-open-winner',
+    display_label: '2026 Women\'s French Open Winner',
+    canonical_title: 'Who will win the 2026 Women\'s French Open?',
+    league: 'wta',
+  },
 ]
 
 /**

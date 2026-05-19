@@ -32,6 +32,8 @@ export const DISCOVERED_POLYMARKET_SLUGS = [
   '2026-nhl-stanley-cup-champion',
   'big-game-champion-2027',
   'uefa-champions-league-winner',
+  '2026-mens-french-open-winner',
+  '2026-womens-french-open-winner',
 ] as const
 
 export type DiscoveredPolymarketSlug = typeof DISCOVERED_POLYMARKET_SLUGS[number]
