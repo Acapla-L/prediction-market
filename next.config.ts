@@ -92,6 +92,7 @@ const config: NextConfig = {
     PRICE_REFERENCE_URL: process.env.PRICE_REFERENCE_URL ?? 'https://price-reference.kuest.com',
     WS_CLOB_URL: process.env.WS_CLOB_URL ?? 'wss://ws-subscriptions-clob.kuest.com',
     WS_LIVE_DATA_URL: process.env.WS_LIVE_DATA_URL ?? 'wss://ws-live-data.kuest.com',
+    POLYMARKET_WS_MARKET_URL: process.env.POLYMARKET_WS_MARKET_URL ?? 'wss://ws-subscriptions-clob.polymarket.com',
   },
 }
 
