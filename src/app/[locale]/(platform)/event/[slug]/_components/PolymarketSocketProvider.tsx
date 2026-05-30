@@ -108,6 +108,13 @@ function PolymarketSocketProvider({ markets, children }: { markets: Market[], ch
         return
       }
       clearPing()
+      // A visibility-driven close (tab hidden) is NOT a network failure — do not
+      // count it toward the reconnect cap or schedule a reconnect here; the
+      // visibility handler resumes the socket on un-hide. This prevents a
+      // permanent `failed` latch from repeated tab-switching (review 2026-05-30).
+      if (typeof document !== 'undefined' && document.hidden) {
+        return
+      }
       failures += 1
       if (failures >= MAX_RECONNECT_ATTEMPTS) {
         setStatus('failed')

@@ -124,4 +124,21 @@ describe('polymarketSocketProvider', () => {
     vi.advanceTimersByTime(2000)
     expect(MockWS.instances.length).toBeGreaterThanOrEqual(2)
   })
+
+  it('does NOT count a visibility-driven close (document.hidden) toward the reconnect cap', () => {
+    renderProvider([yesMarket('c1', 'Y1')])
+    const ws = MockWS.instances[0]
+    ws.open()
+    const before = MockWS.instances.length
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true })
+    try {
+      ws.close() // socket closes while the tab is hidden
+      vi.advanceTimersByTime(60_000)
+      // no reconnect is scheduled while hidden — the visibility handler resumes on un-hide
+      expect(MockWS.instances.length).toBe(before)
+    }
+    finally {
+      Object.defineProperty(document, 'hidden', { value: false, configurable: true })
+    }
+  })
 })
