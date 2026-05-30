@@ -18,6 +18,7 @@
     "test": "vitest run",
     "test:e2e": "npx playwright test",
     "test:smoke": "npx playwright test --config playwright.smoke.config.ts",
+    "test:smoke:ws": "npx playwright test --config playwright.smoke.config.ts tests/e2e/websocket-live-data.smoke.spec.ts",
     "test:unit": "vitest run",
     "prepare": "husky",
     "db:push": "node scripts/migrate.js"
