@@ -7,6 +7,7 @@ import { setRequestLocale } from 'next-intl/server'
 import { cacheTag } from 'next/cache'
 import { notFound } from 'next/navigation'
 import EventMarketChannelProvider from '@/app/[locale]/(platform)/event/[slug]/_components/EventMarketChannelProvider'
+import PolymarketSocketProvider from '@/app/[locale]/(platform)/event/[slug]/_components/PolymarketSocketProvider'
 import SportsEventCenter from '@/app/[locale]/(platform)/sports/_components/SportsEventCenter'
 import {
   buildSportsGamesCardGroups,
@@ -456,17 +457,19 @@ export async function renderSportsVerticalEventPage({
         site={cached.runtimeTheme.site}
       />
       <EventMarketChannelProvider markets={cached.card.detailMarkets}>
-        <SportsEventCenter
-          card={cached.card}
-          marketViewCards={[]}
-          relatedCards={[]}
-          sportSlug={cached.resolvedSportSlug}
-          sportLabel={cached.sportLabel}
-          initialMarketViewKey={resolveSportsEventMarketViewKey(event)}
-          marketContextEnabled={cached.marketContextEnabled}
-          vertical={vertical}
-          key={`is-bookmarked-${cached.card.event.is_bookmarked}`}
-        />
+        <PolymarketSocketProvider markets={cached.card.detailMarkets}>
+          <SportsEventCenter
+            card={cached.card}
+            marketViewCards={[]}
+            relatedCards={[]}
+            sportSlug={cached.resolvedSportSlug}
+            sportLabel={cached.sportLabel}
+            initialMarketViewKey={resolveSportsEventMarketViewKey(event)}
+            marketContextEnabled={cached.marketContextEnabled}
+            vertical={vertical}
+            key={`is-bookmarked-${cached.card.event.is_bookmarked}`}
+          />
+        </PolymarketSocketProvider>
       </EventMarketChannelProvider>
     </>
   )
