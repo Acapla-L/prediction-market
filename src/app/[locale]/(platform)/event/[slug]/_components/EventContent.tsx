@@ -17,6 +17,7 @@ import EventRelatedSkeleton from '@/app/[locale]/(platform)/event/[slug]/_compon
 import EventRules from '@/app/[locale]/(platform)/event/[slug]/_components/EventRules'
 import EventSingleMarketOrderBook from '@/app/[locale]/(platform)/event/[slug]/_components/EventSingleMarketOrderBook'
 import EventTabs from '@/app/[locale]/(platform)/event/[slug]/_components/EventTabs'
+import PolymarketSocketProvider from '@/app/[locale]/(platform)/event/[slug]/_components/PolymarketSocketProvider'
 import ResolutionTimelinePanel from '@/app/[locale]/(platform)/event/[slug]/_components/ResolutionTimelinePanel'
 import { resolveEventOrderBootstrapSelection } from '@/app/[locale]/(platform)/event/[slug]/_utils/event-order-bootstrap-selection'
 import {
@@ -411,144 +412,146 @@ export default function EventContent({
 
   return (
     <EventMarketChannelProvider markets={event.markets}>
-      <EventOutcomeChanceProvider key={event.id}>
-        <OrderLimitPriceSync />
-        <Suspense fallback={null}>
-          <EventOrderQuerySync event={event} marketSlug={marketSlug} isMobile={isMobile} />
-        </Suspense>
-        <div className="grid gap-6 pt-5 pb-20 md:pb-0">
-          <div className={cn(shouldHideChart ? 'grid gap-2' : 'grid gap-3')} ref={contentRef}>
-            <EventHeader event={event} />
+      <PolymarketSocketProvider markets={event.markets}>
+        <EventOutcomeChanceProvider key={event.id}>
+          <OrderLimitPriceSync />
+          <Suspense fallback={null}>
+            <EventOrderQuerySync event={event} marketSlug={marketSlug} isMobile={isMobile} />
+          </Suspense>
+          <div className="grid gap-6 pt-5 pb-20 md:pb-0">
+            <div className={cn(shouldHideChart ? 'grid gap-2' : 'grid gap-3')} ref={contentRef}>
+              <EventHeader event={event} />
 
-            <div className={cn(shouldHideChart ? 'w-full' : 'min-h-96 w-full')}>
-              {usesLiveSeriesChart
-                ? (
-                    <EventLiveSeriesChart
-                      event={event}
-                      isMobile={isMobile}
-                      seriesEvents={seriesEvents}
-                      config={liveChartConfig!}
-                    />
-                  )
-                : (
-                    <EventChart event={event} isMobile={isMobile} seriesEvents={seriesEvents} />
-                  )}
-            </div>
-
-            <div className="grid gap-6">
-              <div
-                ref={eventMarketsRef}
-                id="event-markets"
-                className="min-w-0 overflow-x-hidden lg:overflow-x-visible"
-              >
-                {event.total_markets_count > 1 && <EventMarkets event={event} isMobile={isMobile} />}
+              <div className={cn(shouldHideChart ? 'w-full' : 'min-h-96 w-full')}>
+                {usesLiveSeriesChart
+                  ? (
+                      <EventLiveSeriesChart
+                        event={event}
+                        isMobile={isMobile}
+                        seriesEvents={seriesEvents}
+                        config={liveChartConfig!}
+                      />
+                    )
+                  : (
+                      <EventChart event={event} isMobile={isMobile} seriesEvents={seriesEvents} />
+                    )}
               </div>
-              {event.total_markets_count === 1 && singleMarket && (
-                <div className="grid gap-6">
-                  {currentUser && (
-                    <EventMarketPositions
-                      market={singleMarket}
-                      eventId={event.id}
-                      eventSlug={event.slug}
-                      isNegRiskEnabled={isNegRiskEnabled}
-                      isNegRiskAugmented={Boolean(event.neg_risk_augmented)}
-                      eventOutcomes={event.markets.map(market => ({
-                        conditionId: market.condition_id,
-                        questionId: market.question_id,
-                        label: market.short_title || market.title,
-                        iconUrl: market.icon_url,
-                      }))}
-                      negRiskMarketId={event.neg_risk_market_id}
+
+              <div className="grid gap-6">
+                <div
+                  ref={eventMarketsRef}
+                  id="event-markets"
+                  className="min-w-0 overflow-x-hidden lg:overflow-x-visible"
+                >
+                  {event.total_markets_count > 1 && <EventMarkets event={event} isMobile={isMobile} />}
+                </div>
+                {event.total_markets_count === 1 && singleMarket && (
+                  <div className="grid gap-6">
+                    {currentUser && (
+                      <EventMarketPositions
+                        market={singleMarket}
+                        eventId={event.id}
+                        eventSlug={event.slug}
+                        isNegRiskEnabled={isNegRiskEnabled}
+                        isNegRiskAugmented={Boolean(event.neg_risk_augmented)}
+                        eventOutcomes={event.markets.map(market => ({
+                          conditionId: market.condition_id,
+                          questionId: market.question_id,
+                          label: market.short_title || market.title,
+                          iconUrl: market.icon_url,
+                        }))}
+                        negRiskMarketId={event.neg_risk_market_id}
+                      />
+                    )}
+                    {!isSingleMarketResolved && (
+                      <EventSingleMarketOrderBook
+                        market={singleMarket}
+                        eventSlug={event.slug}
+                        showCompactVolume={usesLiveSeriesChart}
+                      />
+                    )}
+                    {currentUser && <EventMarketOpenOrders market={singleMarket} eventSlug={event.slug} />}
+                    {currentUser && <EventMarketHistory market={singleMarket} />}
+                  </div>
+                )}
+                {marketContextEnabled && <EventMarketContext event={event} />}
+                <EventRules event={event} />
+                {event.total_markets_count === 1
+                  && selectedMarket
+                  && shouldDisplayResolutionTimeline(selectedMarket) && (
+                  <div className="rounded-xl border bg-background p-4">
+                    <ResolutionTimelinePanel
+                      market={selectedMarket}
+                      settledUrl={null}
+                      outcomeOverride={selectedMarketTimelineOutcome}
+                      showLink={false}
                     />
-                  )}
-                  {!isSingleMarketResolved && (
-                    <EventSingleMarketOrderBook
-                      market={singleMarket}
-                      eventSlug={event.slug}
-                      showCompactVolume={usesLiveSeriesChart}
-                    />
-                  )}
-                  {currentUser && <EventMarketOpenOrders market={singleMarket} eventSlug={event.slug} />}
-                  {currentUser && <EventMarketHistory market={singleMarket} />}
+                  </div>
+                )}
+              </div>
+
+              {shouldRenderMobileRelated && (
+                <div className="grid gap-4 lg:hidden">
+                  <h3 className="text-base font-medium">{t('Related')}</h3>
+                  <EventRelated event={event} />
                 </div>
               )}
-              {marketContextEnabled && <EventMarketContext event={event} />}
-              <EventRules event={event} />
-              {event.total_markets_count === 1
-                && selectedMarket
-                && shouldDisplayResolutionTimeline(selectedMarket) && (
-                <div className="rounded-xl border bg-background p-4">
-                  <ResolutionTimelinePanel
-                    market={selectedMarket}
-                    settledUrl={null}
-                    outcomeOverride={selectedMarketTimelineOutcome}
-                    showLink={false}
-                  />
-                </div>
-              )}
+              <EventTabs event={event} user={currentUser} />
             </div>
+          </div>
 
-            {shouldRenderMobileRelated && (
-              <div className="grid gap-4 lg:hidden">
-                <h3 className="text-base font-medium">{t('Related')}</h3>
-                <EventRelated event={event} />
+          {!isMobile && (
+            <aside
+              className={`
+                hidden gap-4
+                lg:sticky lg:top-38 lg:grid lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto
+              `}
+            >
+              <div className="grid gap-6">
+                <EventOrderPanelForm
+                  event={event}
+                  isMobile={false}
+                  initialMarket={initialMarket}
+                  initialOutcome={initialOutcome}
+                />
+                <EventOrderPanelTermsDisclaimer />
+                <span className="border border-dashed"></span>
+                {shouldRenderDesktopRelated ? <EventRelated event={event} /> : <EventRelatedSkeleton />}
               </div>
-            )}
-            <EventTabs event={event} user={currentUser} />
-          </div>
-        </div>
+            </aside>
+          )}
 
-        {!isMobile && (
-          <aside
-            className={`
-              hidden gap-4
-              lg:sticky lg:top-38 lg:grid lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto
-            `}
-          >
-            <div className="grid gap-6">
-              <EventOrderPanelForm
-                event={event}
-                isMobile={false}
-                initialMarket={initialMarket}
-                initialOutcome={initialOutcome}
-              />
-              <EventOrderPanelTermsDisclaimer />
-              <span className="border border-dashed"></span>
-              {shouldRenderDesktopRelated ? <EventRelated event={event} /> : <EventRelatedSkeleton />}
+          {!isMobile && showBackToTop && backToTopBounds && (
+            <div
+              className="pointer-events-none fixed bottom-6 hidden md:flex"
+              style={{ left: `${backToTopBounds.left}px`, width: `${backToTopBounds.width}px` }}
+            >
+              <div className="grid w-full grid-cols-3 items-center px-4">
+                <div />
+                <button
+                  type="button"
+                  onClick={handleBackToTop}
+                  className={`
+                    pointer-events-auto justify-self-center rounded-full border bg-background/90 px-4 py-2 text-sm
+                    font-medium text-foreground shadow-lg backdrop-blur-sm transition-colors
+                    hover:text-muted-foreground
+                  `}
+                  aria-label={t('Back to top')}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    {t('Back to top')}
+                    <ArrowUpIcon className="size-4" />
+                  </span>
+                </button>
+              </div>
             </div>
-          </aside>
-        )}
+          )}
 
-        {!isMobile && showBackToTop && backToTopBounds && (
-          <div
-            className="pointer-events-none fixed bottom-6 hidden md:flex"
-            style={{ left: `${backToTopBounds.left}px`, width: `${backToTopBounds.width}px` }}
-          >
-            <div className="grid w-full grid-cols-3 items-center px-4">
-              <div />
-              <button
-                type="button"
-                onClick={handleBackToTop}
-                className={`
-                  pointer-events-auto justify-self-center rounded-full border bg-background/90 px-4 py-2 text-sm
-                  font-medium text-foreground shadow-lg backdrop-blur-sm transition-colors
-                  hover:text-muted-foreground
-                `}
-                aria-label={t('Back to top')}
-              >
-                <span className="inline-flex items-center gap-2">
-                  {t('Back to top')}
-                  <ArrowUpIcon className="size-4" />
-                </span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {isMobile
-          ? <EventOrderPanelMobile event={event} initialMarket={initialMarket} initialOutcome={initialOutcome} />
-          : null}
-      </EventOutcomeChanceProvider>
+          {isMobile
+            ? <EventOrderPanelMobile event={event} initialMarket={initialMarket} initialOutcome={initialOutcome} />
+            : null}
+        </EventOutcomeChanceProvider>
+      </PolymarketSocketProvider>
     </EventMarketChannelProvider>
   )
 }
