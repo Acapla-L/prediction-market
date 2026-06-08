@@ -193,6 +193,41 @@ async function fetchOutcomeHistory(
 }
 
 /**
+ * Forward-fill pivot. Polymarket timestamps each token on its own jittered
+ * ~30-min grid, so a union-of-timestamps pivot that only writes exact-match
+ * samples leaves ~92% of rows with a single series defined — which
+ * PredictionChart's `defined={...}` then renders as hundreds of disconnected
+ * fragments. Carrying each series' last-known value into every row (the same
+ * approach as the event page's `buildNormalizedHistory`) yields one continuous
+ * line per series. A series with no sample yet is simply absent until its first
+ * sample (matches the event page).
+ */
+export function buildForwardFilledDataPoints(
+  lookups: ReadonlyArray<{ key: string, map: Map<number, number> }>,
+  timestamps: readonly number[],
+): DataPoint[] {
+  const lastKnown = new Map<string, number>()
+  const rows: DataPoint[] = []
+  for (const t of timestamps) {
+    for (const { key, map } of lookups) {
+      const v = map.get(t)
+      if (v !== undefined) {
+        lastKnown.set(key, v)
+      }
+    }
+    if (lastKnown.size === 0) {
+      continue
+    }
+    const row: DataPoint = { date: new Date(t * 1000) }
+    for (const [key, val] of lastKnown) {
+      row[key] = val
+    }
+    rows.push(row)
+  }
+  return rows
+}
+
+/**
  * Fetch top-N outcomes' history in parallel and pivot into a multi-key
  * DataPoint[] keyed on series.key. Each unique timestamp → one row with all
  * available series values. Missing values are simply omitted from that row
@@ -244,16 +279,7 @@ async function fetchTopOutcomesChart(
     return { key: fetch.key, map }
   })
 
-  const dataPoints: DataPoint[] = timestamps.map((t) => {
-    const row: DataPoint = { date: new Date(t * 1000) }
-    for (const { key, map } of lookups) {
-      const v = map.get(t)
-      if (v !== undefined) {
-        row[key] = v
-      }
-    }
-    return row
-  })
+  const dataPoints = buildForwardFilledDataPoints(lookups, timestamps)
 
   // Series metadata in stable order matching `successful` ordering (which
   // mirrors top-N market order by YES price desc).
