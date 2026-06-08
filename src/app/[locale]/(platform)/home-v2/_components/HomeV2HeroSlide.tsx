@@ -54,6 +54,10 @@ function formatPercent(value: number): string {
   return `${Math.round(value)}%`
 }
 
+function formatHeroTick(date: Date): string {
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 export default function HomeV2HeroSlide({ event, isActive, chartConfig }: HomeV2HeroSlideProps) {
   const [containerRef, containerWidth] = useContainerWidth()
   const isMobile = useIsMobile()
@@ -69,6 +73,36 @@ export default function HomeV2HeroSlide({ event, isActive, chartConfig }: HomeV2
     () => seriesEntries.map(s => ({ key: s.key, name: s.label, color: s.color })),
     [seriesEntries],
   )
+
+  // Explicit, evenly-spaced ticks so the axis does NOT fall back to d3's
+  // numTicks-as-hint behavior (which emits ~7-8 colliding 2-day ticks on the
+  // narrow hero width). 3 ticks on mobile, 4 on desktop.
+  const xAxisTickValues = useMemo<Date[] | undefined>(() => {
+    const firstPoint = dataPoints[0]
+    const lastPoint = dataPoints.at(-1)
+    if (!firstPoint || !lastPoint || firstPoint === lastPoint) {
+      return undefined
+    }
+    const first = firstPoint.date.getTime()
+    const last = lastPoint.date.getTime()
+    if (!(last > first)) {
+      return undefined
+    }
+    const count = isMobile ? 3 : 4
+    return Array.from(
+      { length: count },
+      (_, i) => new Date(first + ((last - first) * i) / (count - 1)),
+    )
+  }, [dataPoints, isMobile])
+
+  const xDomain = useMemo(() => {
+    const firstPoint = dataPoints[0]
+    const lastPoint = dataPoints.at(-1)
+    if (!firstPoint || !lastPoint || firstPoint === lastPoint) {
+      return undefined
+    }
+    return { start: firstPoint.date, end: lastPoint.date }
+  }, [dataPoints])
 
   // Hover tooltip — show the leading series' value at the cursor (or first
   // available). For multi-line, header label row is always visible; the
@@ -99,7 +133,10 @@ export default function HomeV2HeroSlide({ event, isActive, chartConfig }: HomeV2
             ? (
                 <div
                   aria-hidden
-                  className="flex size-9 shrink-0 items-center justify-center self-start overflow-hidden rounded-sm sm:size-10"
+                  className="
+                    flex size-9 shrink-0 items-center justify-center self-start overflow-hidden rounded-sm
+                    sm:size-10
+                  "
                 >
                   <EventIconImage
                     src={event.icon_url}
@@ -174,7 +211,12 @@ export default function HomeV2HeroSlide({ event, isActive, chartConfig }: HomeV2
                     showHorizontalGrid
                     gridLineOpacity={0.2}
                     lineStrokeWidth={2}
+                    lineCurve="monotoneX"
                     xAxisTickCount={4}
+                    xAxisTickValues={xAxisTickValues}
+                    xAxisTickFormatter={formatHeroTick}
+                    xAxisTickFontSize={10}
+                    xDomain={xDomain}
                     onCursorDataChange={setSnapshot}
                     tooltipValueFormatter={formatPercent}
                   />
