@@ -27,4 +27,9 @@ describe('buildForwardFilledDataPoints', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ A: 5 })
   })
+
+  it('returns no rows for empty lookups or timestamps', () => {
+    expect(buildForwardFilledDataPoints([], [])).toHaveLength(0)
+    expect(buildForwardFilledDataPoints([{ key: 'A', map: new Map() }], [])).toHaveLength(0)
+  })
 })

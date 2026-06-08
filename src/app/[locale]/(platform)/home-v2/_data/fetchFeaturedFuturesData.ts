@@ -229,10 +229,11 @@ export function buildForwardFilledDataPoints(
 
 /**
  * Fetch top-N outcomes' history in parallel and pivot into a multi-key
- * DataPoint[] keyed on series.key. Each unique timestamp → one row with all
- * available series values. Missing values are simply omitted from that row
- * (PredictionChart's per-series scale handles undefined gracefully via
- * its bisector + value lookup).
+ * DataPoint[] keyed on series.key, forward-filled so every row carries each
+ * series' last-known value (see `buildForwardFilledDataPoints`). This yields
+ * one continuous line per series — Polymarket's per-token timestamp grids are
+ * jittered and rarely align, so an exact-match pivot would leave per-series
+ * gaps that PredictionChart's `defined={...}` renders as fragmented lines.
  */
 async function fetchTopOutcomesChart(
   markets: Market[],
@@ -259,8 +260,8 @@ async function fetchTopOutcomesChart(
     return null
   }
 
-  // Pivot: collect every unique timestamp, then for each timestamp build a row
-  // populated with every series that has a sample at that exact timestamp.
+  // Collect every unique timestamp across all series; the forward-fill pivot
+  // below builds one row per timestamp carrying each series' last-known value.
   const timestampSet = new Set<number>()
   for (const { history } of successful) {
     for (const pt of history) {
