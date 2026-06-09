@@ -15,4 +15,7 @@ describe('isFeaturedCandidateEnded', () => {
   it('keeps an event with an unparseable endDate (defensive)', () => {
     expect(isFeaturedCandidateEnded('not-a-date', now)).toBe(false)
   })
+  it('keeps an event whose endDate exactly equals now (strict past)', () => {
+    expect(isFeaturedCandidateEnded('2026-06-08T00:00:00Z', now)).toBe(false)
+  })
 })

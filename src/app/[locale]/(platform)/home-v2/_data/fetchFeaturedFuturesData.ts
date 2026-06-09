@@ -88,7 +88,8 @@ export interface FeaturedFuturesData {
  * A featured candidate is ineligible once its event has ended — prevents a
  * concluded futures event (e.g. a finished UEFA Champions League whose markets
  * linger before on-chain resolution) from silently filling a hero slot. A null
- * endDate (open-ended) is always eligible.
+ * or unparseable endDate is treated as eligible (fail-open — a parse glitch
+ * must never blank a hero slot).
  */
 export function isFeaturedCandidateEnded(endDateIso: string | null, nowMs: number): boolean {
   if (!endDateIso) {
