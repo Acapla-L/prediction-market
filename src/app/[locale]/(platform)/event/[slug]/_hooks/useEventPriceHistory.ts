@@ -25,6 +25,7 @@ const DISCOVERED_POLYMARKET_SLUGS_INLINE = [
   '2026-womens-french-open-winner',
   '2026-f1-drivers-champion',
   'f1-constructors-champion',
+  'world-cup-winner',
 ] as const
 
 const POLYMARKET_OVERLAY_SLUGS_INLINE: ReadonlySet<string> = new Set<string>([
