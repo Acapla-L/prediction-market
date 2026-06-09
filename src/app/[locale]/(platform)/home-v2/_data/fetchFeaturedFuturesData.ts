@@ -45,12 +45,16 @@ const FEATURED_FUTURES_SLUG_ORDER: readonly DiscoveredPolymarketSlug[] = [
 const FEATURED_COUNT = 3
 const TOP_N_OUTCOMES = 4
 
-// Polymarket CLOB caps multi-day windows at 14 days when both startTs+endTs
-// supplied (post-FIFA span-fix memo 2026-05-03). 14 days is exactly the cap,
-// so endTs is allowed. fidelity=30 matches `useEventPriceHistory.ts`'s
-// `resolveFidelityForSpan` for spans in (7, 30] day range.
-const HISTORY_WINDOW_SECONDS = 14 * 24 * 60 * 60
-const HISTORY_FIDELITY = 30
+// 90-day trend window at 6-hour fidelity. Polymarket CLOB rejects any
+// [startTs, endTs] window longer than 14 days ("interval is too long"), so to
+// exceed that cap we OMIT endTs in `fetchOutcomeHistory` — Polymarket then
+// returns startTs → latest. fidelity=360 (6h buckets) yields ~280-320
+// samples/series over 90 days (verified live 2026-06-09 for NBA / MLB / World
+// Cup top tokens, all created >90d ago) — a richer trend AND a LIGHTER payload
+// than the former 14d/fidelity-30 (~669 samples/series). Forward-filled
+// downstream by `buildForwardFilledDataPoints`.
+const HISTORY_WINDOW_SECONDS = 90 * 24 * 60 * 60
+const HISTORY_FIDELITY = 360
 
 // Top-4 chart colors — matches production /event chart palette.
 const SERIES_COLORS = [
@@ -201,7 +205,8 @@ async function fetchOutcomeHistory(
       token: tokenId,
       fidelity: HISTORY_FIDELITY,
       startTs,
-      endTs: now,
+      // endTs intentionally omitted: Polymarket caps [startTs, endTs] windows at
+      // 14 days; omitting endTs returns startTs → latest, covering the full 90d.
     })
     if (!result) {
       return null
