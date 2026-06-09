@@ -72,6 +72,12 @@ export const DISCOVERED_SLUG_METADATA: ReadonlyArray<DiscoveredSlugMetadata> = [
     canonical_title: 'Which team will win the 2026 F1 Constructors\' Championship?',
     league: 'f1',
   },
+  {
+    slug: 'world-cup-winner',
+    display_label: '2026 World Cup Winner',
+    canonical_title: 'Which country will win the 2026 FIFA World Cup?',
+    league: 'fifa',
+  },
 ]
 
 /**

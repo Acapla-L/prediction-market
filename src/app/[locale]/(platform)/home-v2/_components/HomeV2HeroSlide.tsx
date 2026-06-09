@@ -58,6 +58,10 @@ function formatHeroTick(date: Date): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+// Inset the first/last ticks inward by this fraction of the time span so the
+// center-anchored edge labels don't clip at the chart's left/right edges.
+const X_AXIS_EDGE_INSET = 0.07
+
 export default function HomeV2HeroSlide({ event, isActive, chartConfig }: HomeV2HeroSlideProps) {
   const [containerRef, containerWidth] = useContainerWidth()
   const isMobile = useIsMobile()
@@ -89,9 +93,12 @@ export default function HomeV2HeroSlide({ event, isActive, chartConfig }: HomeV2
       return undefined
     }
     const count = isMobile ? 3 : 4
+    const span = last - first
+    const innerStart = first + span * X_AXIS_EDGE_INSET
+    const innerEnd = last - span * X_AXIS_EDGE_INSET
     return Array.from(
       { length: count },
-      (_, i) => new Date(first + ((last - first) * i) / (count - 1)),
+      (_, i) => new Date(innerStart + ((innerEnd - innerStart) * i) / (count - 1)),
     )
   }, [dataPoints, isMobile])
 

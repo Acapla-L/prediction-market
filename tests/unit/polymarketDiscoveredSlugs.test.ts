@@ -10,7 +10,7 @@ import {
 } from '@/lib/polymarket/discovered-slugs'
 
 describe('dISCOVERED_POLYMARKET_SLUGS allowlist', () => {
-  it('contains exactly the nine allowlist slugs (5 day-1 + 2 French Open + 2 F1 futures 2026-05-19)', () => {
+  it('contains exactly the ten allowlist slugs (5 day-1 + 2 French Open + 2 F1 futures + World Cup winner)', () => {
     expect([...DISCOVERED_POLYMARKET_SLUGS]).toEqual([
       '2026-nba-champion',
       'mlb-world-series-champion-2026',
@@ -21,6 +21,7 @@ describe('dISCOVERED_POLYMARKET_SLUGS allowlist', () => {
       '2026-womens-french-open-winner',
       '2026-f1-drivers-champion',
       'f1-constructors-champion',
+      'world-cup-winner',
     ])
   })
 
@@ -71,8 +72,9 @@ describe('dISCOVERED_SLUG_METADATA', () => {
   it('league values map to recognised sport identifiers', () => {
     // Recognised league identifiers: 5 day-1 sport-league codes + 'atp'/'wta'
     // for tennis bracket discrimination (added 2026-05-19 with French Open)
-    // + 'f1' for Formula 1 (added 2026-05-19 with F1 futures content add).
-    const validLeagues = new Set(['nba', 'mlb', 'nhl', 'nfl', 'ucl', 'atp', 'wta', 'f1'])
+    // + 'f1' for Formula 1 (added 2026-05-19 with F1 futures content add)
+    // + 'fifa' for the FIFA World Cup outright winner (World Cup winner add).
+    const validLeagues = new Set(['nba', 'mlb', 'nhl', 'nfl', 'ucl', 'atp', 'wta', 'f1', 'fifa'])
     for (const meta of DISCOVERED_SLUG_METADATA) {
       expect(validLeagues.has(meta.league)).toBe(true)
     }

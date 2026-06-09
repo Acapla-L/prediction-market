@@ -118,10 +118,10 @@ describe('client-inline per-game slug patterns match server-side league registry
  * surfaces with a clear failure message naming the offending slug.
  */
 describe('isDiscoveryGameSlug — Phase A v2 futures non-match invariant', () => {
-  // The 10 slugs that MUST continue rendering at /event/[slug] unchanged:
-  // 9 from DISCOVERED_POLYMARKET_SLUGS (the Phase A v2 sidecar allowlist —
-  // 5 day-1 + 2 French Open added 2026-05-19 + 2 F1 futures added 2026-05-19) +
-  // FIFA_EVENT_SLUG (the original Polymarket overlay slug).
+  // The 11 slugs that MUST continue rendering at /event/[slug] unchanged:
+  // 10 from DISCOVERED_POLYMARKET_SLUGS (the Phase A v2 sidecar allowlist —
+  // 5 day-1 + 2 French Open added 2026-05-19 + 2 F1 futures added 2026-05-19 +
+  // 1 World Cup winner) + FIFA_EVENT_SLUG (the original Polymarket overlay slug).
   const PHASE_A_V2_FUTURES_SLUGS = [
     '2026-fifa-world-cup-winner-595',
     '2026-nba-champion',
@@ -133,9 +133,10 @@ describe('isDiscoveryGameSlug — Phase A v2 futures non-match invariant', () =>
     '2026-womens-french-open-winner',
     '2026-f1-drivers-champion',
     'f1-constructors-champion',
+    'world-cup-winner',
   ] as const
 
-  it('all 10 Phase A v2 futures slugs are NOT matched by the per-game pattern', () => {
+  it('all 11 Phase A v2 futures slugs are NOT matched by the per-game pattern', () => {
     PHASE_A_V2_FUTURES_SLUGS.forEach((slug) => {
       // Asserted per-slug so the failure message names the offending slug
       // (e.g. "expected isDiscoveryGameSlug('mlb-world-series-champion-2026')
