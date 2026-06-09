@@ -27,15 +27,19 @@ import 'server-only'
  * so PredictionChart can render N lines off the same x-axis.
  */
 
-// Locked, demo-relevant order. Top 3 are the most universally recognizable to
-// the minister + regulators. Sidecar contains 5 active futures; FIFA lives in
-// the main events table and is intentionally NOT included in this hero v1.
+// Locked, demo-relevant order. The hero surfaces the first 3 eligible slugs
+// (see FEATURED_COUNT); slots 4+ are live fallbacks if an earlier slug is
+// missing or has ended (see isFeaturedCandidateEnded). NBA / MLB World Series /
+// the World Cup are the most universally recognizable to the minister +
+// regulators — the World Cup (discovery-sidecar slug 'world-cup-winner') now
+// fills slot 3. NHL precedes UCL deliberately: UCL's final has already happened,
+// so NHL is the live fallback while UCL is the last resort.
 const FEATURED_FUTURES_SLUG_ORDER: readonly DiscoveredPolymarketSlug[] = [
   '2026-nba-champion',
   'mlb-world-series-champion-2026',
-  'big-game-champion-2027',
-  'uefa-champions-league-winner',
+  'world-cup-winner',
   '2026-nhl-stanley-cup-champion',
+  'uefa-champions-league-winner',
 ]
 
 const FEATURED_COUNT = 3
@@ -78,6 +82,23 @@ export interface FeaturedFuturesData {
   events: Event[]
   /** Per-event chart config. Missing entry => slide renders skeleton. */
   chartDataByEvent: Record<string, HeroChartConfig>
+}
+
+/**
+ * A featured candidate is ineligible once its event has ended — prevents a
+ * concluded futures event (e.g. a finished UEFA Champions League whose markets
+ * linger before on-chain resolution) from silently filling a hero slot. A null
+ * endDate (open-ended) is always eligible.
+ */
+export function isFeaturedCandidateEnded(endDateIso: string | null, nowMs: number): boolean {
+  if (!endDateIso) {
+    return false
+  }
+  const end = new Date(endDateIso).getTime()
+  if (!Number.isFinite(end)) {
+    return false
+  }
+  return end < nowMs
 }
 
 /**
@@ -310,6 +331,7 @@ export async function fetchFeaturedFuturesData(
   // Project in curated order; skip rows missing or with empty markets.
   const events: Event[] = []
   const eventToSlug = new Map<string, string>()
+  const nowMs = Date.now()
   for (const slug of FEATURED_FUTURES_SLUG_ORDER) {
     if (events.length >= FEATURED_COUNT) {
       break
@@ -319,6 +341,9 @@ export async function fetchFeaturedFuturesData(
       continue
     }
     if (row.lastSyncStatus !== 'ok' && (!row.marketsPayload || row.marketsPayload === '')) {
+      continue
+    }
+    if (isFeaturedCandidateEnded(row.endDate, nowMs)) {
       continue
     }
     const event = rowToSyntheticEvent(row)
