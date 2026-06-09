@@ -120,6 +120,12 @@ const GammaEventSchema = z.object({
   // Gamma event creation timestamp. Surfaced into the synthetic Event's
   // `created_at` so the chart's ALL range covers full Polymarket history.
   createdAt: z.string().optional(),
+  // Event-level banner image (Polymarket `event.image`). Used by the discovery
+  // synthetic-event builder as the headline banner so events whose per-market
+  // icons are not the event banner (e.g. World Cup, where market icons are
+  // country flags) still show the correct event image. Optional/nullable —
+  // FIFA overlay path and older callers ignore it.
+  image: z.string().nullable().optional(),
   // Phase B per-game neg-risk flags (always `false` for per-game). Optional
   // because Phase A v2 futures responses set `enableNegRisk: true`. Note:
   // `gameStartTime` is at the MARKET level (see `GammaMarketSchema` above),
@@ -263,6 +269,7 @@ function mapGammaEventToPolymarketEvent(
     title: gammaEvent.title,
     endDate: gammaEvent.endDate ?? null,
     createdAt: gammaEvent.createdAt,
+    image: gammaEvent.image ?? undefined,
     negRisk: gammaEvent.negRisk,
     enableNegRisk: gammaEvent.enableNegRisk,
     teams: gammaEvent.teams ?? null,

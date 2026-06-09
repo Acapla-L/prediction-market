@@ -95,6 +95,42 @@ function makeNbaRow(): DiscoveredEventRow {
   } as DiscoveredEventRow
 }
 
+// Builds a row whose markets_payload carries a single market with a per-market
+// icon (e.g. a country flag) plus an optional event-level banner image. Used to
+// assert the synthetic banner precedence in buildSyntheticEvent.
+function makeBannerRow(options: { eventImage?: string, firstMarketIcon: string }): DiscoveredEventRow {
+  const payload: Record<string, unknown> = {
+    markets: [
+      {
+        polymarket_market_id: 'spain-mkt',
+        slug: 'spain-win-world-cup',
+        short_title: 'Spain',
+        is_active: true,
+        is_closed: false,
+        outcome_prices: ['0.20', '0.80'],
+        clob_token_ids: ['spain-yes', 'spain-no'],
+        volume: 5_000_000,
+        icon_url: options.firstMarketIcon,
+      },
+    ],
+  }
+  if (options.eventImage !== undefined) {
+    payload.event_image = options.eventImage
+  }
+
+  return {
+    slug: '2026-nba-champion',
+    polymarketEventId: 'banner-event-id',
+    title: 'World Cup Winner',
+    isActive: true,
+    endDate: '2026-07-19T00:00:00.000Z',
+    marketsPayload: JSON.stringify(payload),
+    lastSyncedAt: '2026-05-14T00:00:00.000Z',
+    lastSyncStatus: 'ok',
+    lastSyncError: null,
+  } as DiscoveredEventRow
+}
+
 describe('loadDiscoveredEventPageData — team logo enrichment', () => {
   beforeEach(() => {
     mockedCacheTag.mockReset()
@@ -207,6 +243,42 @@ describe('loadDiscoveredEventPageData — team logo enrichment', () => {
     // Markets still get per-team logos (preserves Bundle B's intended fix).
     const hawks = result!.event.markets.find(m => m.short_title === 'Atlanta Hawks')!
     expect(hawks.icon_url).toBe('https://cdn/atlanta-hawks.png')
+  })
+
+  it('prefers payload.event_image for the synthetic banner over the first market icon (World Cup case)', async () => {
+    // World Cup per-market icons are individual country flags, while the
+    // event-level image is the actual tournament banner. The synthetic
+    // event's headline icon_url must use the event banner, NOT the first
+    // country's flag.
+    mockedRepo.getBySlug.mockResolvedValue({
+      data: makeBannerRow({
+        eventImage: 'https://x/banner.jpg',
+        firstMarketIcon: 'https://x/spain-flag.png',
+      }),
+      error: null,
+    })
+    mockedTeamsRepo.listByLeague.mockResolvedValue({ data: [], error: null })
+
+    const result = await loadDiscoveredEventPageData('2026-nba-champion')
+
+    expect(result).not.toBeNull()
+    expect(result!.event.icon_url).toBe('https://x/banner.jpg')
+    expect(result!.event.icon_url).not.toBe('https://x/spain-flag.png')
+  })
+
+  it('falls back to the first market icon for the synthetic banner when event_image is absent (back-compat)', async () => {
+    // Rows synced before event_image existed have no event-level image. The
+    // synthetic banner must preserve the prior behavior: first market icon.
+    mockedRepo.getBySlug.mockResolvedValue({
+      data: makeBannerRow({ firstMarketIcon: 'https://x/banner.png' }),
+      error: null,
+    })
+    mockedTeamsRepo.listByLeague.mockResolvedValue({ data: [], error: null })
+
+    const result = await loadDiscoveredEventPageData('2026-nba-champion')
+
+    expect(result).not.toBeNull()
+    expect(result!.event.icon_url).toBe('https://x/banner.png')
   })
 
   it('does not query teams_cache for slugs without metadata (returns null event)', async () => {

@@ -93,6 +93,14 @@ export interface PolymarketEvent {
    */
   createdAt?: string
   /**
+   * Polymarket Gamma event-level banner image (`event.image`). Drives the
+   * synthetic Event's headline `icon_url` (buildSyntheticEvent) so events
+   * whose per-market icons differ from the event banner (e.g. World Cup, where
+   * market icons are country flags) render the correct banner. Optional —
+   * FIFA overlay path and older callers ignore it.
+   */
+  image?: string
+  /**
    * Polymarket Gamma's `negRisk` flag at the event level. Phase A v2 futures
    * are always `true` (allowlist contract); Phase B per-game events are
    * always `false`. The flag drives `EventChart.shouldHideChart` indirectly —

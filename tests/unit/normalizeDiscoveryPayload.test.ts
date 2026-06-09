@@ -107,6 +107,26 @@ describe('normalizeDiscoveryPayload', () => {
     const payload = normalizeDiscoveryPayload(noCreatedAt)
     expect(payload.event_created_at).toBeUndefined()
   })
+
+  it('extracts event_image from Gamma image for the synthetic banner', () => {
+    const withImage: PolymarketEvent = {
+      slug: 'world-cup-winner',
+      image: 'https://x/banner.jpg',
+      markets: [],
+    }
+    const payload = normalizeDiscoveryPayload(withImage)
+    expect(payload.event_image).toBe('https://x/banner.jpg')
+  })
+
+  it('omits event_image when Gamma did not return image (backwards-compat)', () => {
+    const noImage: PolymarketEvent = {
+      slug: 'edge-case',
+      markets: [],
+      // image intentionally omitted
+    }
+    const payload = normalizeDiscoveryPayload(noImage)
+    expect(payload.event_image).toBeUndefined()
+  })
 })
 
 describe('serializeDiscoveryPayload', () => {

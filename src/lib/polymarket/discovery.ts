@@ -24,6 +24,10 @@ const DiscoveredMarketsPayloadSchema = z.object({
   // was added. Falls back to row.lastSyncedAt in `buildSyntheticEvent` when
   // absent. Next hourly sync overwrites with real Polymarket creation date.
   event_created_at: z.string().optional(),
+  // Optional for backwards compatibility with rows synced before this field
+  // was added. Drives the synthetic Event's headline banner in
+  // `buildSyntheticEvent`; falls back to the first market icon when absent.
+  event_image: z.string().optional(),
   markets: z.array(z.object({
     polymarket_market_id: z.string(),
     slug: z.string().nullable(),
@@ -189,13 +193,18 @@ export function buildSyntheticEvent(
   const totalVolume = markets.reduce((sum, m) => sum + (m.volume ?? 0), 0)
   const status: Event['status'] = activeCount > 0 ? 'active' : 'resolved'
   // Event-level featured image (rendered by EventHeader.tsx at the top of the
-  // page next to the title) must source from the RAW Polymarket payload, NOT
-  // from the synthesized markets — Bundle B overrides per-market icon_url
-  // with team logos, so deriving the event icon from a synthesized market
-  // would surface the first team's logo as the event banner. Polymarket's
-  // event-level banner (same across all markets in the payload) is what
-  // belongs at the page header.
-  const firstIcon = payload.markets.find(entry => entry.icon_url)?.icon_url ?? ''
+  // page next to the title). Precedence:
+  //   1. payload.event_image — Polymarket's true event-level banner. Required
+  //      for events whose per-market icons are NOT the event banner (e.g. the
+  //      World Cup, where each market icon is an individual country flag — the
+  //      first market's flag must NOT become the headline image).
+  //   2. The first market's icon_url — back-compat fallback for rows synced
+  //      before event_image existed, and for events (NBA/UCL/etc.) where every
+  //      market shares one generic event banner.
+  // Both source from the RAW Polymarket payload, NOT the synthesized markets —
+  // Bundle B overrides per-market icon_url with team logos, so deriving the
+  // event icon from a synthesized market would surface the first team's logo.
+  const firstIcon = payload.event_image ?? payload.markets.find(entry => entry.icon_url)?.icon_url ?? ''
 
   // Prefer the Polymarket Gamma event creation timestamp (captured during
   // sync) so the chart's "ALL" range covers full Polymarket history. Falls

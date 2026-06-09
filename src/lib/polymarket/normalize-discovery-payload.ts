@@ -30,6 +30,13 @@ export interface DiscoveredMarketsPayload {
    * Drives the chart's "ALL" time-range lower bound.
    */
   event_created_at?: string
+  /**
+   * Polymarket event-level banner image. Drives the synthetic Event's headline
+   * `icon_url` (buildSyntheticEvent) so events whose per-market icons differ
+   * from the event banner (e.g. World Cup country flags) render the correct
+   * banner. Optional for back-compat with rows synced before this field.
+   */
+  event_image?: string
   markets: ReadonlyArray<DiscoveredMarketPayloadEntry>
 }
 
@@ -43,6 +50,7 @@ export interface DiscoveredMarketsPayload {
 export function normalizeDiscoveryPayload(event: PolymarketEvent): DiscoveredMarketsPayload {
   return {
     event_created_at: event.createdAt,
+    event_image: event.image,
     markets: event.markets.map((m): DiscoveredMarketPayloadEntry => ({
       polymarket_market_id: m.id,
       slug: m.slug ?? null,
