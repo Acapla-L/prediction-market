@@ -29,17 +29,22 @@ import 'server-only'
 
 // Locked, demo-relevant order. The hero surfaces the first 3 eligible slugs
 // (see FEATURED_COUNT); slots 4+ are live fallbacks if an earlier slug is
-// missing or has ended (see isFeaturedCandidateEnded). NBA / MLB World Series /
-// the World Cup are the most universally recognizable to the minister +
-// regulators — the World Cup (discovery-sidecar slug 'world-cup-winner') now
-// fills slot 3. NHL precedes UCL deliberately: UCL's final has already happened,
-// so NHL is the live fallback while UCL is the last resort.
+// missing or has ended (see isFeaturedCandidateEnded). The World Cup leads —
+// it's the most universally recognizable to the minister + regulators and runs
+// for months — followed by NBA then MLB World Series. NHL then F1 Drivers'
+// Champion are the live fallbacks (F1 replaces the now-concluded UEFA Champions
+// League, whose final has already happened — a concluded market must never
+// silently fill a hero slot). NHL precedes F1 so the still-live NHL fills the
+// slot first; F1 Drivers' runs the whole season and is the long-running last
+// resort. Both NBA and NHL conclude this week, so as they end the lineup
+// auto-degrades via isFeaturedCandidateEnded to World Cup / MLB / NHL, then to
+// World Cup / MLB / F1 — all long-running markets — with no further edits.
 const FEATURED_FUTURES_SLUG_ORDER: readonly DiscoveredPolymarketSlug[] = [
+  'world-cup-winner',
   '2026-nba-champion',
   'mlb-world-series-champion-2026',
-  'world-cup-winner',
   '2026-nhl-stanley-cup-champion',
-  'uefa-champions-league-winner',
+  '2026-f1-drivers-champion',
 ]
 
 const FEATURED_COUNT = 3
