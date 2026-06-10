@@ -28,7 +28,7 @@ describe('issue 1 — theme fallback never shows Kuest branding (goal b)', () =>
     const { createDefaultThemeSiteIdentity } = await import('@/lib/theme-site-identity')
     const identity = createDefaultThemeSiteIdentity()
 
-    expect(identity.name).toBe('WirePredictions')
+    expect(identity.name).toBe('WireMarkets')
     // The Kuest "K" lettermark is the lime-green #CDFF00 path.
     expect(identity.logoSvg.toLowerCase()).not.toContain('#cdff00')
     expect(identity.logoUrl.toLowerCase()).not.toContain('cdff00')
@@ -51,7 +51,7 @@ describe('issue 1 — theme fallback never shows Kuest branding (goal b)', () =>
     expect(state.theme.cssText.toLowerCase()).toContain('#02fddd')
     // No Kuest "K" in the default site identity either.
     expect(state.site.logoSvg.toLowerCase()).not.toContain('#cdff00')
-    expect(state.site.name).toBe('WirePredictions')
+    expect(state.site.name).toBe('WireMarkets')
   })
 })
 
@@ -84,7 +84,7 @@ describe('issue 1 — loadRuntimeThemeState does not cache the DB-error fallback
     const state = await mod.loadRuntimeThemeState()
 
     expect(state.source).toBe('default')
-    expect(state.site.name).toBe('WirePredictions')
+    expect(state.site.name).toBe('WireMarkets')
     expect(state.site.logoSvg.toLowerCase()).not.toContain('#cdff00')
     expect(state.theme.dark.primary?.toLowerCase()).toBe('#02fddd')
   })

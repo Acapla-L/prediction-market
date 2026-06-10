@@ -10,7 +10,7 @@ import { AccessGateForm } from './_components/AccessGateForm'
 const WAGERWIRE_URL = 'https://www.wagerwire.com/'
 
 export const metadata: Metadata = {
-  title: 'Private Preview — WirePredictions',
+  title: 'Private Preview — WireMarkets',
   description: 'This platform is in private preview. Enter your invitation code to continue.',
   robots: { index: false, follow: false },
 }
@@ -53,7 +53,7 @@ export default async function AccessPage() {
           />
           <span className="font-logo tracking-tight text-foreground uppercase">
             <span className="font-bold">Wire</span>
-            <span className="font-light">Predictions</span>
+            <span className="font-light">Markets</span>
           </span>
         </div>
 

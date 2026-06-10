@@ -16,12 +16,12 @@ export const THEME_SITE_SOCIAL_LINK_FIELDS = [
 export type ThemeSiteSocialLinkField = typeof THEME_SITE_SOCIAL_LINK_FIELDS[number]
 
 const THEME_SITE_LOGO_MODE_SET = new Set<string>(THEME_SITE_LOGO_MODES)
-const DEFAULT_SITE_NAME_FALLBACK = 'WirePredictions'
+const DEFAULT_SITE_NAME_FALLBACK = 'WireMarkets'
 const DEFAULT_SITE_DESCRIPTION_FALLBACK = 'Decentralized Prediction Markets'
 /**
  * Default site logo used when no logo is configured in the `settings` table,
- * or when the settings read transiently fails. This MUST stay WirePredictions /
- * WagerWire branded — never the Kuest "K" lettermark. A WirePredictions
+ * or when the settings read transiently fails. This MUST stay WireMarkets /
+ * WagerWire branded — never the Kuest "K" lettermark. A WireMarkets
  * wordmark in the WagerWire cyan accent (#02FDDD) is self-contained (no storage
  * round-trip) and unmistakably ours during a degraded render. Issue 1 fix:
  * branding must never flicker to Kuest.
@@ -29,7 +29,7 @@ const DEFAULT_SITE_DESCRIPTION_FALLBACK = 'Decentralized Prediction Markets'
 const DEFAULT_SITE_LOGO_SVG_FALLBACK = `
 <svg viewBox="0 0 260 40" xmlns="http://www.w3.org/2000/svg">
   <text x="0" y="30" font-family="Inter, Helvetica, Arial, sans-serif" font-size="30" font-weight="700" letter-spacing="0.5" fill="#02FDDD">WIRE</text>
-  <text x="92" y="30" font-family="Inter, Helvetica, Arial, sans-serif" font-size="30" font-weight="300" letter-spacing="0.5" fill="#FFFFFF">PREDICTIONS</text>
+  <text x="92" y="30" font-family="Inter, Helvetica, Arial, sans-serif" font-size="30" font-weight="300" letter-spacing="0.5" fill="#FFFFFF">MARKETS</text>
 </svg>
 `
 

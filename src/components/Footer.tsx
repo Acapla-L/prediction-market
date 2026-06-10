@@ -238,7 +238,7 @@ export function FooterVariantB() {
           <div className="flex-1">
             <p className="text-xs font-semibold tracking-wider text-primary uppercase">Regulatory Notice</p>
             <p className="mt-1 text-sm text-foreground/90">
-              WirePredictions operates under Gibraltar Gambling Commission license [REF]. Prediction
+              WireMarkets operates under Gibraltar Gambling Commission license [REF]. Prediction
               market contracts involve financial risk and may result in loss. Not available in
               restricted jurisdictions. 18+ only.
               {' '}
@@ -336,7 +336,7 @@ export function FooterVariantB() {
         <div className="mt-12 border-t border-border pt-8">
           <div className="space-y-2 text-center text-xs/relaxed text-muted-foreground">
             <p>
-              WirePredictions is operated by Wire Industries, Inc. and is licensed and regulated by
+              WireMarkets is operated by Wire Industries, Inc. and is licensed and regulated by
               the Gibraltar Gambling Commission. Trading prediction market contracts involves
               substantial risk and may not be suitable for every investor.
             </p>
@@ -689,9 +689,9 @@ export default function Footer() {
         {/* ===== Section 3: Risk Disclaimer ===== */}
         <div className="mt-10 border-t border-border pt-10">
           <p className="text-xs/relaxed text-muted-foreground">
-            Trading on Wire Predictions involves risk and may not be appropriate for all. Members risk losing
+            Trading on Wire Markets involves risk and may not be appropriate for all. Members risk losing
             their cost to enter any transaction, including fees. You should carefully consider whether trading on
-            Wire Predictions is appropriate for you in light of your investment experience and financial resources.
+            Wire Markets is appropriate for you in light of your investment experience and financial resources.
             Any trading decisions you make are solely your responsibility and at your own risk. Information is
             provided for convenience only on an &quot;AS IS&quot; basis. Past performance is not necessarily
             indicative of future results.

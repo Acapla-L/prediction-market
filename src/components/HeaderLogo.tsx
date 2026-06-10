@@ -32,7 +32,7 @@ export default function HeaderLogo({ labelSuffix }: HeaderLogoProps) {
       />
       <span className="font-logo tracking-tight uppercase">
         <span className="font-bold">Wire</span>
-        <span className="font-light">Predictions</span>
+        <span className="font-light">Markets</span>
         {labelSuffix && <span className="ml-1 font-medium normal-case">{labelSuffix}</span>}
       </span>
     </AppLink>
