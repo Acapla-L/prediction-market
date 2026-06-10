@@ -1,6 +1,6 @@
 import type { SupportedLocale } from '@/i18n/locales'
 import type { DiscoveredGameRow } from '@/lib/db/queries/discovered-games'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, gte, sql } from 'drizzle-orm'
 import { cacheTag } from 'next/cache'
 import { cacheTags } from '@/lib/cache-tags'
 import {
@@ -88,7 +88,7 @@ export function shortenTeamName(fullName: string): string {
   if (words.length === 1) {
     return words[0]!
   }
-  const last = words[words.length - 1]!
+  const last = words.at(-1)!
   if (last === 'Sox' || last === 'Jays') {
     return `${words[words.length - 2]!} ${last}`
   }
@@ -159,6 +159,14 @@ function attachLeading(row: DiscoveredGameRow): SidebarGameWithLeading {
 }
 
 async function fetchRandomDiscoveredGames(limit: number): Promise<DiscoveredGameRow[]> {
+  // Only upcoming/in-window games. Mirrors the `now - 1h` guard in
+  // DiscoveredGamesRepository.listUpcomingByLeague (discovered-games.ts:144,153)
+  // that the homepage sections and sports-list route already use. Without it the
+  // `is_closed = false` filter is NOT sufficient: the discovery sync keeps a
+  // concluded game `is_active = true / is_closed = false` for hours-to-days
+  // (Polymarket sync lag), so `ORDER BY random()` would surface past/concluded
+  // games in the sidebar (~half the eligible pool were stale before this guard).
+  const windowStart = new Date(Date.now() - 60 * 60 * 1000)
   const entries = await db
     .select()
     .from(discovered_polymarket_games)
@@ -166,6 +174,7 @@ async function fetchRandomDiscoveredGames(limit: number): Promise<DiscoveredGame
       eq(discovered_polymarket_games.is_active, true),
       eq(discovered_polymarket_games.is_archived, false),
       eq(discovered_polymarket_games.is_closed, false),
+      gte(discovered_polymarket_games.game_start_time, windowStart),
     ))
     .orderBy(sql`random()`)
     .limit(limit)
