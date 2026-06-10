@@ -1,3 +1,4 @@
+import type { SportsGamesTeam } from '@/app/[locale]/(platform)/sports/_utils/sports-games-data'
 import type { SupportedLocale } from '@/i18n/locales'
 import type { DiscoveredGameRow } from '@/lib/db/queries/discovered-games'
 import { and, eq, gte, sql } from 'drizzle-orm'
@@ -8,8 +9,12 @@ import {
   discovered_polymarket_games,
 } from '@/lib/db/schema'
 import { db } from '@/lib/drizzle'
+import { buildChanceByMarket } from '@/lib/market-chance'
 import { DISCOVERED_SLUG_METADATA } from '@/lib/polymarket/discovered-slugs'
+import { getLeagueForGameSlug } from '@/lib/polymarket/games-leagues'
 import { DiscoveredGameMarketsPayloadSchema } from '@/lib/polymarket/normalize-games-discovery-payload'
+import { buildSyntheticEvent, parseGameSlugTeams } from '@/lib/polymarket/synthesize-sports-card'
+import { buildHomeSportsMoneylineModel, resolveHomeSportsButtonChance } from '@/lib/sports-home-card'
 import 'server-only'
 
 export interface SidebarFutureRow {
@@ -96,67 +101,117 @@ export function shortenTeamName(fullName: string): string {
 }
 
 /**
- * Derives the leading team and percentage for a sidebar row from the game's
- * moneyline market. Polymarket per-game moneylines have 2 outcomes whose
- * labels ARE the team names (e.g. `["New York Yankees", "Boston Red Sox"]`)
- * and whose prices express implied win probability. The higher-priced
- * outcome's label + percent is the "leading team" we want to surface in
- * place of the raw start time. The label is shortened via `shortenTeamName`
- * to strip inconsistent location prefixes from Polymarket source data.
+ * Build the `SportsGamesTeam` the shared resolver expects from a sidecar row's
+ * persisted team label + slug-derived abbreviation. The label (e.g.
+ * "Switzerland", "Boston Red Sox") is the FULL team name the resolver matches
+ * on (`doesTextMatchTeam` does an includes-match against the name), so it must
+ * be the label, not the abbreviation.
+ */
+function toSidebarTeam(
+  label: string | null,
+  abbreviation: string,
+  hostStatus: 'home' | 'away',
+): SportsGamesTeam {
+  return {
+    name: label?.trim() || abbreviation.toUpperCase(),
+    abbreviation,
+    record: null,
+    color: null,
+    logoUrl: null,
+    hostStatus,
+  }
+}
+
+/**
+ * Derives the leading team + win% for a sidebar game row by REUSING the exact
+ * resolver the home-v2 sport-section cards use — never a parallel copy:
+ *   row → buildSyntheticEvent → buildHomeSportsMoneylineModel + buildChanceByMarket
+ *       → resolveHomeSportsButtonChance per team → the higher-chance team wins.
  *
- * Returns `null` if the payload can't be parsed, the moneyline market is
- * absent, prices/outcomes are missing, or both prices parse to NaN — the
- * sidebar card renders without a secondary span in that case.
+ * This is soccer-aware: soccer / World Cup games encode their moneyline as 3
+ * separate Yes/No legs (Home / Draw / Away), and `buildSeparatedMoneylineModel`
+ * matches each leg to its team and reads the YES side — so "Switzerland 61%"
+ * renders instead of the naive first-leg "No 84%". MLB/NBA/NHL (2-outcome
+ * team-name moneyline) flow through the SAME resolver via
+ * `buildBinaryMoneylineModel` and are unchanged.
+ *
+ * Returns `null` (sidebar card renders without a secondary span) when the
+ * payload can't be parsed, the slug isn't a base game, or no moneyline model
+ * resolves. Sub-event rows (`-player-props`, `-more-markets`, …) are filtered
+ * out upstream in `fetchRandomDiscoveredGames`, so they never reach here.
  */
 function deriveLeadingTeam(
-  marketsPayload: string,
+  row: DiscoveredGameRow,
 ): { label: string, percent: number } | null {
   let parsed: unknown
   try {
-    parsed = JSON.parse(marketsPayload)
+    parsed = JSON.parse(row.marketsPayload)
   }
   catch {
     return null
   }
 
   const result = DiscoveredGameMarketsPayloadSchema.safeParse(parsed)
-  if (!result.success) {
+  if (!result.success || result.data.markets.length === 0) {
     return null
   }
 
-  const moneyline = result.data.markets.find(m => m.market_type === 'moneyline')
-  if (!moneyline) {
-    return null
-  }
-  if (!moneyline.outcomes || !moneyline.outcome_prices) {
-    return null
-  }
-
-  const price0 = Number(moneyline.outcome_prices[0])
-  const price1 = Number(moneyline.outcome_prices[1])
-  if (Number.isNaN(price0) && Number.isNaN(price1)) {
+  const league = getLeagueForGameSlug(row.slug)
+  const slugTeams = parseGameSlugTeams(row.slug, league?.teamOrderConvention)
+  if (!slugTeams) {
     return null
   }
 
-  const useFirst = (Number.isNaN(price1)) || (price0 >= price1)
-  const winningPrice = useFirst ? price0 : price1
-  const winningLabel = useFirst ? moneyline.outcomes[0] : moneyline.outcomes[1]
-  if (!winningLabel || Number.isNaN(winningPrice)) {
-    return null
-  }
+  try {
+    const event = buildSyntheticEvent(
+      row,
+      result.data,
+      toSidebarTeam(row.homeTeamLabel, slugTeams.homeAbbr, 'home'),
+      toSidebarTeam(row.awayTeamLabel, slugTeams.awayAbbr, 'away'),
+      league?.sportRouteSlug ?? row.league,
+    )
+    const model = buildHomeSportsMoneylineModel(event)
+    if (!model) {
+      return null
+    }
 
-  return {
-    label: shortenTeamName(winningLabel),
-    percent: Math.round(winningPrice * 100),
+    const chanceByMarket = buildChanceByMarket(event.markets)
+    const team1Percent = Math.round(
+      resolveHomeSportsButtonChance(chanceByMarket[model.team1Button.conditionId], model.team1Button.outcomeIndex),
+    )
+    const team2Percent = Math.round(
+      resolveHomeSportsButtonChance(chanceByMarket[model.team2Button.conditionId], model.team2Button.outcomeIndex),
+    )
+
+    const leadingTeam = team1Percent >= team2Percent ? model.team1 : model.team2
+    const leadingPercent = Math.max(team1Percent, team2Percent)
+    if (leadingPercent <= 0) {
+      return null
+    }
+    return {
+      label: shortenTeamName(leadingTeam.name),
+      percent: leadingPercent,
+    }
+  }
+  catch {
+    return null
   }
 }
 
 function attachLeading(row: DiscoveredGameRow): SidebarGameWithLeading {
   return {
     row,
-    leading: deriveLeadingTeam(row.marketsPayload),
+    leading: deriveLeadingTeam(row),
   }
 }
+
+// Over-fetch so the base-game filter below still yields a full set. Per-game
+// SUB-EVENT rows (`-player-props`, `-more-markets`, `-exact-score`, …) share a
+// base game's teams but carry no moneyline market, so they'd render as blank,
+// duplicate sidebar cards — and they are ~63% of the eligible pool (80% for
+// FIFA World Cup). 60 leaves ample headroom above the 6 base games the sidebar
+// needs.
+const SIDEBAR_RANDOM_OVERFETCH = 60
 
 async function fetchRandomDiscoveredGames(limit: number): Promise<DiscoveredGameRow[]> {
   // Only upcoming/in-window games. Mirrors the `now - 1h` guard in
@@ -177,9 +232,17 @@ async function fetchRandomDiscoveredGames(limit: number): Promise<DiscoveredGame
       gte(discovered_polymarket_games.game_start_time, windowStart),
     ))
     .orderBy(sql`random()`)
-    .limit(limit)
+    .limit(SIDEBAR_RANDOM_OVERFETCH)
 
-  return entries.map(gameRowFromEntry)
+  // Keep only BASE-GAME rows. `parseGameSlugTeams` returns null for any slug
+  // that isn't the `{league}-{away}-{home}-{YYYY}-{MM}-{DD}` shape — the SAME
+  // base-game detection the home-v2 sport sections use to skip sub-events
+  // (fetchLeagueEvents.ts), so the sidebar agrees with the cards on what a game
+  // is and they can't drift apart.
+  return entries
+    .map(gameRowFromEntry)
+    .filter(row => parseGameSlugTeams(row.slug) !== null)
+    .slice(0, limit)
 }
 
 async function fetchActiveFuturesSlugs(): Promise<Set<string>> {
